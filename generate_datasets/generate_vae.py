@@ -9,39 +9,16 @@ Created on Tue Feb 11 11:46:32 2020
     Frederico Vicente, NOVA FCT, MIEI
     Ludwig Krippahl
 """
+import data_access
 
 import tensorflow as tf
 from tensorflow.keras.layers import InputLayer,Dense,Conv2DTranspose,Reshape,Conv2D,Flatten
 from tensorflow.keras.optimizers import Adam
 
 import numpy as np
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 import time
 from IPython import display
-
-(train_images, _), (test_images, _) = tf.keras.datasets.fashion_mnist.load_data()
-
-train_images = train_images.reshape(train_images.shape[0], 28, 28, 1).astype('float32')
-test_images = test_images.reshape(test_images.shape[0], 28, 28, 1).astype('float32')
-train_images.shape
-
-# Normalizing the images to the range of [0., 1.]
-train_images /= 255.
-test_images /= 255.
-
-# Binarization
-train_images[train_images >= .5] = 1.
-train_images[train_images < .5] = 0.
-test_images[test_images >= .5] = 1.
-test_images[test_images < .5] = 0.
-
-
-TRAIN_BUF = 60000
-BATCH_SIZE = 128
-TEST_BUF = 10000
-
-train_dataset = tf.data.Dataset.from_tensor_slices(train_images).shuffle(TRAIN_BUF).batch(BATCH_SIZE)
-test_dataset = tf.data.Dataset.from_tensor_slices(test_images).shuffle(TEST_BUF).batch(BATCH_SIZE)
 
 class Inference_net(tf.keras.Model):
     def __init__(self,latent_dim):
@@ -100,6 +77,14 @@ class VAE(tf.keras.Model):
         self.inference_net = Inference_net(self.latent_dim)
         self.generative_net = Generator_net(self.latent_dim)
         self.optimizer = Adam(1e-4)
+        
+        self.train_dataset = None
+        self.test_dataset = None
+        self.train_labels = None
+        self.test_labels = None
+        
+    def load_dataset(self,dataset):
+        self.train_dataset,self.train_labels,self.test_dataset,self.test_labels = dataset
 
     @tf.function
     def sample(self, eps=None):
@@ -148,16 +133,16 @@ class VAE(tf.keras.Model):
         gradients = tape.gradient(loss, self.trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
 
-    def train_model(self,epochs,train_dataset):
+    def train_model(self,epochs):
         for epoch in range(1, epochs + 1):
             start_time = time.time()
-            for train_x in train_dataset:
+            for train_x in self.train_dataset:
                 self.compute_apply_gradients(train_x)
             end_time = time.time()
 
             if epoch % 1 == 0:
                 loss = tf.keras.metrics.Mean()
-                for test_x in test_dataset:
+                for test_x in self.test_dataset:
                     loss(self.compute_loss(test_x))
                 elbo = -loss.result()
                 display.clear_output(wait=False)
@@ -165,9 +150,9 @@ class VAE(tf.keras.Model):
                     'time elapse for current epoch {}'.format(epoch,
                                                               elbo,
                                                               end_time - start_time))
-    def generate_images(self,number_of_samples,directory):
+    def generate_images(self,number_of_samples=5,directory="imgs"):
         random_vector_for_generation = tf.random.normal(shape=[number_of_samples, self.latent_dim])
         predictions = self.sample(random_vector_for_generation)
+        data_access.prepare_directory(directory)
         for i in range(predictions.shape[0]):
-            plt.axis('off')
-            plt.imsave("{}/{}.png".format(directory,i),predictions[i, :, :, 0], cmap = "gray")
+            data_access.store_image(directory,i,predictions[i, :, :, 0])

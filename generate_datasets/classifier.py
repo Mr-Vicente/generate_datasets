@@ -122,5 +122,5 @@ class Classifier():
     def predict(self,image):
         model = load_model('classifier.h5')
         result = model.predict_classes(image)
-        print(result[0])
+        return result[0]
         

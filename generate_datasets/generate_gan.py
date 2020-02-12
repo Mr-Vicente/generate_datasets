@@ -11,28 +11,17 @@ Created on Tue Feb 11 11:46:48 2020
     Frederico Vicente, NOVA FCT, MIEI
     Ludwig Krippahl
 """
+from classifier import Classifier
+import data_access
+
 import tensorflow as tf
-from tensorflow.keras.layers import Dense,LeakyReLU,BatchNormalization,Conv2DTranspose,Reshape,Conv2D,Dropout,Flatten
+from tensorflow.keras.layers import Dense,BatchNormalization,Reshape,Conv2D,Dropout,Flatten,UpSampling2D,LeakyReLU
 from tensorflow.keras.optimizers import Adam
 
 import numpy as np
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 import time
 from IPython import display
-
-BATCH_SIZE = 256
-BUFFER_SIZE = 60000
-EPOCHES = 10
-OUTPUT_DIR = "img" # The output directory where the images of the generator a stored during training
-
-fmnist = tf.keras.datasets.fashion_mnist
-(train_images, train_labels), (test_images, test_labels) = fmnist.load_data()
-
-train_images = train_images.reshape(train_images.shape[0], 28, 28, 1).astype("float32")
-
-train_images = (train_images - 127.5) / 127.5
-
-train_dataset = tf.data.Dataset.from_tensor_slices(train_images).shuffle(BUFFER_SIZE).batch(BATCH_SIZE)
 
 class Generator(tf.keras.Model):
     
@@ -45,24 +34,30 @@ class Generator(tf.keras.Model):
         self.leaky_1 = LeakyReLU()
         self.reshape_1 = Reshape((7,7,256))
         
-        self.conv2 = Conv2DTranspose(128, (5, 5), strides = (1,1), padding = "same", use_bias = False)
+        #self.conv2 = Conv2DTranspose(128, (5, 5), strides = (1,1), padding = "same", use_bias = False)
+        self.up_2 = UpSampling2D((1,1), interpolation='nearest')
+        self.conv2 = Conv2D(128, (3, 3), strides = (1,1), padding = "same", use_bias = False)
         self.batchNorm2 = BatchNormalization()
         self.leaky_2 = LeakyReLU()
         
-        self.conv3 = Conv2DTranspose(64, (5, 5), strides = (2,2), padding = "same", use_bias = False)
+        #self.conv3 = Conv2DTranspose(64, (5, 5), strides = (2,2), padding = "same", use_bias = False)
+        self.up_3 = UpSampling2D((2,2), interpolation='nearest')
+        self.conv3 = Conv2D(64, (3, 3), strides = (1,1), padding = "same", use_bias = False)
         self.batchNorm3 = BatchNormalization()
         self.leaky_3 = LeakyReLU()
         
-        self.conv4 = Conv2DTranspose(1, (5, 5), strides = (2,2), padding = "same", use_bias = False, activation = "tanh")
-        
+        #self.conv4 = Conv2DTranspose(1, (5, 5), strides = (2,2), padding = "same", use_bias = False, activation = "tanh")
+        self.up_4 = UpSampling2D((2,2), interpolation='nearest')
+        self.conv4 = Conv2D(1, (3, 3), strides = (1,1), padding = "same", use_bias = False)
+
         self.optimizer = Adam(1e-4)
         
     def call(self, input_tensor):
         ## Definition of Forward Pass
         x = self.reshape_1(self.leaky_1(self.batchNorm1(self.dense_1(input_tensor))))
-        x = self.leaky_2(self.batchNorm2(self.conv2(x)))
-        x = self.leaky_3(self.batchNorm3(self.conv3(x)))
-        return  self.conv4(x)
+        x = self.leaky_2(self.batchNorm2(self.conv2(self.up_2(x))))
+        x = self.leaky_3(self.batchNorm3(self.conv3(self.up_3(x))))
+        return  self.conv4(self.up_4(x))
     
     def generate_noise(self,batch_size, random_noise_size):
         return tf.random.normal([batch_size, random_noise_size])
@@ -124,9 +119,18 @@ class GAN(tf.keras.Model):
         super().__init__(name = "GAN")
         self.generator = Generator(100)
         self.discriminator = Discriminator()
+        self.classifier = Classifier()
+               
+        self.train_dataset = None
+        self.test_dataset = None
+        self.train_labels = None
+        self.test_labels = None
+        
+    def load_dataset(self,dataset):
+        self.train_dataset,self.train_labels,self.test_dataset,self.test_labels = dataset
 
     @tf.function()
-    def training_step(self,images:np.ndarray , batch_size = BATCH_SIZE):
+    def training_step(self,images:np.ndarray , batch_size):
         with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
             noise = self.generator.generate_noise(batch_size, 100)
             g_z = self.generator(noise, training=True)
@@ -134,22 +138,24 @@ class GAN(tf.keras.Model):
             d_x_fake = self.discriminator(g_z, training=True) # dx_of_gx
 
             discriminator_loss = self.discriminator.objective(d_x_true, d_x_fake)
-            # Adjusting Gradient of Discriminator
-            gradients_of_discriminator = disc_tape.gradient(discriminator_loss, self.discriminator.trainable_variables)
-            self.discriminator.backPropagate(gradients_of_discriminator, self.discriminator.trainable_variables)
-
-
             generator_loss = self.generator.objective(d_x_fake)
-            # Adjusting Gradient of Generator
-            gradients_of_generator = gen_tape.gradient(generator_loss, self.generator.trainable_variables)
-            self.generator.backPropagate(gradients_of_generator, self.generator.trainable_variables)
+            
+        # Adjusting Gradient of Discriminator
+        gradients_of_discriminator = disc_tape.gradient(discriminator_loss, self.discriminator.trainable_variables)
+        self.discriminator.backPropagate(gradients_of_discriminator, self.discriminator.trainable_variables)
 
-    def train_model(self,epoches,train_dataset):
+        # Adjusting Gradient of Generator
+        gradients_of_generator = gen_tape.gradient(generator_loss, self.generator.trainable_variables)
+        self.generator.backPropagate(gradients_of_generator, self.generator.trainable_variables)
+        return g_z
+    
+    def train_model(self,epoches,batch_size):
         s_time = time.time()
         for epoch in range(epoches):
             start_time = time.time()
-            for batch in train_dataset: 
-                self.training_step(batch ,batch_size = BATCH_SIZE)
+            for batch in self.train_dataset: 
+                images_gen = self.training_step(batch ,batch_size)
+                self.predict_generated_image(images_gen)
             end_time = time.time()
             ## After ith epoch plot image 
             if (epoch % 1) == 0: 
@@ -158,10 +164,17 @@ class GAN(tf.keras.Model):
                                                           end_time - start_time))
         print('Time elapse {}'.format(time.time() - s_time))
 
+
     def generate_images(self,number_of_samples,directory):
         seed = tf.random.normal([number_of_samples, 100])
         predictions = self.generator(seed)
-        print(predictions.shape)
+        data_access.prepare_directory(directory)
         for i in range(predictions.shape[0]):
-            plt.axis('off')
-            plt.imsave("{}/{}.png".format(directory,i),predictions[i, :, :, 0], cmap = "gray")
+            data_access.store_image(directory,i,predictions[i, :, :, 0])
+            #image = tf.reshape(predictions[i, :, :, 0],shape=(1,28,28,1))
+            #print(self.classifier.predict(image))
+
+    def predict_generated_image(self,images_gen):
+         #image = tf.reshape(images_gen[0, :, :, 0],shape=(1,28,28,1))
+         #print(self.classifier.predict(image))
+         pass
