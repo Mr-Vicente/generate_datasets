@@ -32,6 +32,7 @@ class Classifier():
         self.test_dataset = None
         self.train_labels = None
         self.test_labels = None
+        self.t_model = None
 
     def load_dataset(self,dataset):
         # Load dataset
@@ -116,11 +117,13 @@ class Classifier():
         
     def train_model(self):
         model = self.build_model()
-        model.fit(self.train_dataset, self.train_labels, epochs=10, batch_size=32, validation_data=(self.test_dataset, self.test_labels), verbose=0)
+        model.fit(self.train_dataset, self.train_labels,steps_per_epoch=32, epochs=10, batch_size=32, validation_data=(self.test_dataset, self.test_labels), verbose=0)
         model.save('classifier.h5')
+
+    def load_local_model(self):
+        self.t_model = load_model('classifier.h5')
+        self.t_model.compile(optimizer=SGD(learning_rate=0.01, momentum=0.9), loss='categorical_crossentropy', metrics=['accuracy'])
         
-    def predict(self,image):
-        model = load_model('classifier.h5')
-        result = model.predict_classes(image)
-        return result[0]
-        
+    def predict_image(self,image):
+        result = np.argmax(self.t_model(image))
+        return result
