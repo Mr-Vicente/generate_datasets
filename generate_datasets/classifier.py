@@ -125,5 +125,5 @@ class Classifier():
         self.t_model.compile(optimizer=SGD(learning_rate=0.01, momentum=0.9), loss='categorical_crossentropy', metrics=['accuracy'])
         
     def predict_image(self,image):
-        result = np.argmax(self.t_model(image))
+        result = tf.math.argmax(self.t_model(image,training=False),axis=1)
         return result
