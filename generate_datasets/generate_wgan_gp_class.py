@@ -14,6 +14,7 @@ Created on Wed Feb 19 18:50:54 2020
 
 from classifier import Classifier
 import data_access
+from spectral_normalization import SpectralNormalization
 
 import tensorflow as tf
 from tensorflow.keras.layers import Dense,BatchNormalization,Reshape,Conv2D,Dropout,Flatten,UpSampling2D,LeakyReLU
@@ -67,7 +68,7 @@ class Generator(tf.keras.Model):
     def compute_loss(self,y_true,y_pred,class_wanted,class_y):
         """ Wasserstein loss - prob of classfier get it right
         """
-        k = 4 # hiper-parameter
+        k = 2 # hiper-parameter
         return backend.mean(y_true * y_pred) + (k * categorical_crossentropy(class_wanted,class_y))
 
     def backPropagate(self,gradients,trainable_variables):
@@ -100,11 +101,10 @@ class Critic(tf.keras.Model):
         x = self.flat(x)
         return self.logits(x)
 
-    def compute_loss(self,y_true,y_pred,grad_p):
+    def compute_loss(self,y_true,y_pred):
         """ Wasserstein loss
         """
-        lambda_ = 10.0
-        return backend.mean(y_true * y_pred) + (lambda_ * grad_p)
+        return backend.mean(y_true * y_pred) 
 
     def backPropagate(self,gradients,trainable_variables):
         self.optimizer.apply_gradients(zip(gradients, trainable_variables))
@@ -123,28 +123,33 @@ class WGAN(tf.keras.Model):
         self.train_labels = None
         self.test_labels = None
         
-    def load_dataset(self,dataset):
+    def load_dataset(self,dataset,n_classes):
         self.train_dataset,self.train_labels,self.test_dataset,self.test_labels = dataset
+        self.num_classes = n_classes
 
-    @tf.function()
+    @tf.function
     def predict_batch(self,images,type_class):
         images_predictions = tf.TensorArray(tf.float32,size=10,dynamic_size=True)
         ys = tf.TensorArray(tf.float32,size=10,dynamic_size=True)
+        matched_images = tf.TensorArray(tf.float32,size=0,dynamic_size=True)
+        index = 0
         for i in tf.range(len(images)):
             gen_image = ((images[i] * 127.5) + 127.5) / 255.0 
             img = tf.expand_dims(gen_image,axis=0)
             c_type = self.classifier_m.predict_image(img)
-            w_list = tf.one_hot(c_type,10)
+            w_list = tf.one_hot(c_type,self.num_classes)
             w_list = tf.reshape(w_list,(w_list.shape[1],))
             
             images_predictions = images_predictions.write(i,w_list)
-            y_list = tf.one_hot(type_class,10)
+            y_list = tf.one_hot(type_class,self.num_classes)
             ys = ys.write(i,y_list)
-            if(tf.equal(w_list,y_list)):
-                pass#data_access.tf_store_image(gen_image)
+            if(tf.reduce_all(tf.equal(w_list,y_list))):
+                matched_images = matched_images.write(index,images[i])
+                index +=1
                 
-        return images_predictions.stack(), ys.stack()
+        return images_predictions.stack(), ys.stack(),matched_images.stack()
 
+    @tf.function
     def gradient_penalty(self,generated_samples,ys,batch_size):
         alpha = backend.random_uniform(shape=[batch_size,1,1,1],minval=0.0,maxval=1.0)
         differences = generated_samples - ys
@@ -155,17 +160,21 @@ class WGAN(tf.keras.Model):
         return gradient_p
 
     @tf.function
-    def training_step_critic(self,images:np.ndarray,ys,real,batch_size):
+    def training_step_critic(self,real_imgs,gen_imgs,real_labels,gen_labels,batch_size):
+        lambda_ = 10.0
         with tf.GradientTape() as tape:
-            d_x = self.critic(images, training=True) # Trainable?
-            critic_loss = self.critic.compute_loss(ys, d_x,self.gradient_penalty(images,real,batch_size))
+            d_x_real = self.critic(real_imgs, training=True) 
+            d_x_gen = self.critic(gen_imgs, training=True) 
+            critic_r_loss = self.critic.compute_loss(real_labels, d_x_real)
+            critic_g_loss = self.critic.compute_loss(gen_labels, d_x_gen)
+            total_loss = critic_r_loss + critic_g_loss + (lambda_ * self.gradient_penalty(gen_imgs,real_imgs,batch_size))
         
-        gradients_of_critic = tape.gradient(critic_loss, self.critic.trainable_variables)
+        gradients_of_critic = tape.gradient(total_loss, self.critic.trainable_variables)
         self.critic.backPropagate(gradients_of_critic, self.critic.trainable_variables)
-        return critic_loss
+        return total_loss
 
 
-    @tf.function()
+    @tf.function
     def training_step_generator(self,noise_size, batch_size,class_type):
         # prepare points in latent space as input for the generator
         X_g = self.generator.generate_noise(batch_size,noise_size)
@@ -174,12 +183,12 @@ class WGAN(tf.keras.Model):
         with tf.GradientTape() as tape:
             d_x = self.generator(X_g, training=True) # Trainable?
             d_z = self.critic(d_x, training=True)
-            images_predictions, ys = self.predict_batch(d_x,class_type)
+            images_predictions, ys, matched_images = self.predict_batch(d_x,class_type)
             generator_loss = self.generator.compute_loss(d_z, y_g, images_predictions, ys)
         
         gradients_of_generator = tape.gradient(generator_loss, self.generator.trainable_variables)
         self.generator.backPropagate(gradients_of_generator, self.generator.trainable_variables)
-        return generator_loss
+        return generator_loss,matched_images
 
     def generate_real_samples(self, n_samples):
         # choose random instances
@@ -209,7 +218,7 @@ class WGAN(tf.keras.Model):
         logdir="logs/graph/" + datetime.now().strftime("%Y%m%d-%H%M%S")
         return tf.summary.create_file_writer(logdir=logdir)
     
-    def train_model(self,epoches,batch_size,n_critic=5,noise_size=100,class_type=0):
+    def train_model(self,epoches,batch_size,n_critic=5,noise_size=100,class_type=5):
 
         batch_per_epoch = int(self.train_dataset.shape[0] / batch_size)
 
@@ -220,8 +229,10 @@ class WGAN(tf.keras.Model):
 
         sum_writer_loss = self.define_loss_tensorboard()
         self.classifier_m.load_local_model()
-        avg_loss_gen = tf.keras.metrics.Mean()
         avg_loss_critic = tf.keras.metrics.Mean()
+        avg_loss_gen = tf.keras.metrics.Mean()
+        epoch = 0
+        start_time = time.time()
         for i in range(n_steps):
             for _ in range(n_critic):
                 # get randomly selected 'real' samples
@@ -230,20 +241,21 @@ class WGAN(tf.keras.Model):
                 X_fake, y_fake = self.generate_fake_samples(noise_size, half_batch)
                 
                 # update critic model weights
-                c_loss1 = self.training_step_critic(X_real, y_real,X_real,half_batch)
-                # update critic model weights
-                c_loss2 = self.training_step_critic(X_fake, y_fake,X_real,half_batch)
+                c_loss = self.training_step_critic(X_real,X_fake, y_real,y_fake,half_batch)
+                avg_loss_critic(c_loss)
                 
-            loss = self.training_step_generator(noise_size,batch_size,class_type)
-            print("{} OUT OF {}".format(i,n_steps))
-            avg_loss_gen(loss)
-            avg_loss_critic(c_loss2)
-            if(n_steps % epoches == 0):
+            gen_loss, matched_images = self.training_step_generator(noise_size,batch_size,class_type)
+            avg_loss_gen(gen_loss)
+            data_access.print_training_output(i,n_steps, avg_loss_critic.result(),avg_loss_gen.result()) 
+            
+            if((i % (n_steps / epoches)) == 0):
+                epoch += 1
+                data_access.store_images(matched_images[:4],epoch)
                 with sum_writer_loss.as_default():
-                    tf.summary.scalar('avg_loss_gen', avg_loss_gen.result(),step=self.generator.optimizer.iterations)
+                    tf.summary.scalar('loss_gen', avg_loss_gen.result(),step=self.generator.optimizer.iterations)
                     tf.summary.scalar('avg_loss_critic', avg_loss_critic.result(),step=self.critic.optimizer.iterations)
-
-
+        #data_access.create_gif('200epoches')
+        print('Time elapse {}'.format(time.time() - start_time))
 
     def generate_images(self,number_of_samples,directory):
         seed = tf.random.normal([number_of_samples, 100])
@@ -252,16 +264,3 @@ class WGAN(tf.keras.Model):
         for i in range(predictions.shape[0]):
             data_access.store_image(directory,i,predictions[i, :, :, 0])
 
-
-'''
-# Bracket the function call with
-# tf.summary.trace_on() and tf.summary.trace_export().
-tf.summary.trace_on(graph=True, profiler=True)
-# Call only one tf.function when tracing.
-z = training_step_generator(x, y)
-with writer.as_default():
-  tf.summary.trace_export(
-      name="my_func_trace",
-      step=0,
-      profiler_outdir=logdir)
-'''
