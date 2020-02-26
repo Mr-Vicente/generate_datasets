@@ -88,18 +88,19 @@ def store_images(images,epoch):
     plt.savefig('image_at_epoch_{:04d}.png'.format(epoch))
 
 def create_collection(epoches,n_dif_images,directory):
-    fig = plt.figure(figsize=(epoches,n_dif_images))
+    fig = plt.figure(figsize=(20,200))
     k=0
     for epoch in range(epoches):
         for im in range(n_dif_images):
             k+=1
             img = mpimg.imread('{}/epoch_{}/id_{}.png'.format(directory,epoch,im))
-            plt.subplot(epoches, n_dif_images, k)
+            fig.add_subplot(epoches, n_dif_images, k)
             plt.imshow(img, cmap='gray')
             plt.axis('off')
     plt.tight_layout()
-    plt.savefig('training.pdf')
-
+    plt.savefig('training.png')
+    
+    
 def create_gif(filename):
     anim_file = '{}.gif'.format(filename)
     with imageio.get_writer(anim_file, mode='I') as writer:

@@ -15,12 +15,13 @@ import data_access
 from generate_wgan_gp_class import WGAN
 
 fmnist = tf.keras.datasets.fashion_mnist
-BATCH_SIZE = 256
-EPOCHS = 100
+BATCH_SIZE = 64
+EPOCHS = 400
 
 gan = WGAN()
 gan.load_dataset(data_access.prepare_data(fmnist.load_data(),"gan",BATCH_SIZE),10)
 gan.train_model(EPOCHS,BATCH_SIZE)
-#gan.generate_images(5,"imgs")
+gan.save_weights('wgan.h5')
+gan.generate_images(5,"imgs")
 
 

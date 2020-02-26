@@ -17,7 +17,7 @@ from datetime import datetime
 
 class Generator(tf.keras.Model):
     
-    def __init__(self, random_noise_size = 100):
+    def __init__(self, random_noise_size = 100,batch_s = 64):
         super().__init__(name='generator')
         #layers
         init = RandomNormal(stddev=0.2)
@@ -40,7 +40,7 @@ class Generator(tf.keras.Model):
         self.conv4 = Conv2D(1, (3, 3), activation='tanh', strides = (1,1), padding = "same", use_bias = False, kernel_initializer=init)
 
         self.optimizer = RMSprop(lr=0.00005)
-        self.seed = tf.random.normal([256, random_noise_size])
+        self.seed = tf.random.normal([batch_s, random_noise_size])
                
     def call(self, input_tensor):
         ## Definition of Forward Pass
