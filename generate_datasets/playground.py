@@ -19,8 +19,8 @@ BATCH_SIZE = 64
 EPOCHS = 400
 
 gan = WGAN()
-gan.load_dataset(data_access.prepare_data(fmnist.load_data(),"gan",BATCH_SIZE),10)
-gan.train_model(EPOCHS,BATCH_SIZE)
+gan.load_dataset(data_access.prepare_data(fmnist.load_data(),"gan",BATCH_SIZE),BATCH_SIZE,10)
+gan.train_model(EPOCHS)
 gan.save_weights('wgan.h5')
 gan.generate_images(5,"imgs")
 

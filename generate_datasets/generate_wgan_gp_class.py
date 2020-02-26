@@ -99,9 +99,9 @@ class Critic(tf.keras.Model):
         
         
 class WGAN(tf.keras.Model):
-    def __init__(self):
+    def __init__(self,batch_size = 64):
         super().__init__(name = "WGAN")
-        self.generator = Generator(100)
+        self.generator = Generator(100,batch_size)
         self.critic = Critic()
         self.classifier_m = Classifier()
                
@@ -109,6 +109,7 @@ class WGAN(tf.keras.Model):
         self.test_dataset = None
         self.train_labels = None
         self.test_labels = None
+        self.batch_size = batch_size
         
     def load_dataset(self,dataset,n_classes):
         self.train_dataset,self.train_labels,self.test_dataset,self.test_labels = dataset
@@ -137,8 +138,8 @@ class WGAN(tf.keras.Model):
         return images_predictions.stack(), ys.stack(),matched_images.stack()
 
     @tf.function
-    def gradient_penalty(self,generated_samples,ys,batch_size):
-        alpha = backend.random_uniform(shape=[batch_size,1,1,1],minval=0.0,maxval=1.0)
+    def gradient_penalty(self,generated_samples,ys):
+        alpha = backend.random_uniform(shape=[self.batch_size,1,1,1],minval=0.0,maxval=1.0)
         differences = generated_samples - ys
         interpolates = ys + (alpha * differences)
         gradients = tf.gradients(self.critic(interpolates),[interpolates])[0]
@@ -147,14 +148,14 @@ class WGAN(tf.keras.Model):
         return gradient_p
 
     @tf.function
-    def training_step_critic(self,real_imgs,gen_imgs,real_labels,gen_labels,batch_size):
+    def training_step_critic(self,real_imgs,gen_imgs,real_labels,gen_labels):
         lambda_ = 10.0
         with tf.GradientTape() as tape:
             d_x_real = self.critic(real_imgs, training=True) 
             d_x_gen = self.critic(gen_imgs, training=True) 
             critic_r_loss = self.critic.compute_loss(real_labels, d_x_real)
             critic_g_loss = self.critic.compute_loss(gen_labels, d_x_gen)
-            total_loss = critic_r_loss + critic_g_loss + (lambda_ * self.gradient_penalty(gen_imgs,real_imgs,batch_size))
+            total_loss = critic_r_loss + critic_g_loss + (lambda_ * self.gradient_penalty(gen_imgs,real_imgs))
         
         gradients_of_critic = tape.gradient(total_loss, self.critic.trainable_variables)
         self.critic.backPropagate(gradients_of_critic, self.critic.trainable_variables)
@@ -162,11 +163,11 @@ class WGAN(tf.keras.Model):
 
 
     @tf.function
-    def training_step_generator(self,noise_size, batch_size,class_type):
+    def training_step_generator(self,noise_size,class_type):
         # prepare points in latent space as input for the generator
-        X_g = self.generator.generate_noise(batch_size,noise_size)
+        X_g = self.generator.generate_noise(self.batch_size,noise_size)
         # create inverted labels for the fake samples
-        y_g = -np.ones((batch_size, 1)).astype(np.float32)
+        y_g = -np.ones((self.batch_size, 1)).astype(np.float32)
         with tf.GradientTape() as tape:
             d_x = self.generator(X_g, training=True) # Trainable?
             d_z = self.critic(d_x, training=True)
@@ -205,14 +206,14 @@ class WGAN(tf.keras.Model):
         logdir="logs/graph/" + datetime.now().strftime("%Y%m%d-%H%M%S")
         return tf.summary.create_file_writer(logdir=logdir)
     
-    def train_model(self,epoches,batch_size,n_critic=5,noise_size=100,class_type=5):
+    def train_model(self,epoches,n_critic=5,noise_size=100,class_type=5):
 
-        batch_per_epoch = int(self.train_dataset.shape[0] / batch_size)
+        batch_per_epoch = int(self.train_dataset.shape[0] / self.batch_size)
 
         # calculate the number of training iterations
         n_steps = batch_per_epoch * epoches
         # calculate the size of half a batch of samples
-        half_batch = int(batch_size / 2)
+        half_batch = int(self.batch_size / 2)
 
         sum_writer_loss = self.define_loss_tensorboard()
         self.classifier_m.load_local_model()
@@ -233,18 +234,16 @@ class WGAN(tf.keras.Model):
                 c_loss = self.training_step_critic(X_real,X_fake, y_real,y_fake,half_batch)
                 avg_loss_critic(c_loss)
                 
-            gen_loss, matched_images, gen_images = self.training_step_generator(noise_size,batch_size,class_type)
+            gen_loss, matched_images, gen_images = self.training_step_generator(noise_size,class_type)
             avg_loss_gen(gen_loss)
             data_access.print_training_output(i,n_steps, avg_loss_critic.result(),avg_loss_gen.result()) 
             
             if((i % (n_steps / epoches)) == 0):
-                #data_access.store_images(matched_images[:4],epoch)
                 data_access.store_images_seed(directory,gen_images[:n_dif_images],epoch)
                 with sum_writer_loss.as_default():
                     tf.summary.scalar('loss_gen', avg_loss_gen.result(),step=self.generator.optimizer.iterations)
                     tf.summary.scalar('avg_loss_critic', avg_loss_critic.result(),step=self.critic.optimizer.iterations)
                 epoch += 1
-        #data_access.create_gif('200epoches')
         data_access.create_collection(epoches,n_dif_images,directory)
         print('Time elapse {}'.format(time.time() - start_time))
 
