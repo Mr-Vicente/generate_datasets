@@ -1,17 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Wed Feb 19 18:50:54 2020
-
-@author: MrVicente
-"""
-"""
-    WGAN GP with classifier
-    
-    Frederico Vicente, NOVA FCT, MIEI
-    Ludwig Krippahl
-"""
-
-
 from classifier import Classifier
 import data_access
 from spectral_normalization import SpectralNormalization
@@ -54,7 +40,8 @@ class Generator(tf.keras.Model):
         self.conv4 = Conv2D(1, (3, 3), activation='tanh', strides = (1,1), padding = "same", use_bias = False, kernel_initializer=init)
 
         self.optimizer = RMSprop(lr=0.00005)
-        
+        self.seed = tf.random.normal([256, random_noise_size])
+               
     def call(self, input_tensor):
         ## Definition of Forward Pass
         x = self.reshape_1(self.leaky_1(self.batchNorm1(self.dense_1(input_tensor))))
@@ -81,11 +68,11 @@ class Critic(tf.keras.Model):
         
         init = RandomNormal(stddev=0.2)
         #Layers
-        self.conv_1 = Conv2D(64, (4, 4), strides=(2, 2), padding='same', kernel_initializer=init, input_shape=[28, 28, 1])
+        self.conv_1 = SpectralNormalization(Conv2D(64, (3, 3), strides=(2, 2), padding='same', kernel_initializer=init, input_shape=[28, 28, 1]))
         self.leaky_1 = LeakyReLU(alpha=0.2)
         self.dropout_1 = Dropout(0.3)
         
-        self.conv_2 = Conv2D(128, (4, 4), strides=(2, 2), padding='same', kernel_initializer=init)
+        self.conv_2 = SpectralNormalization(Conv2D(128, (3, 3), strides=(2, 2), padding='same', kernel_initializer=init))
         self.leaky_2 = LeakyReLU(alpha=0.2)
         self.dropout_2 = Dropout(0.3)
 
@@ -188,7 +175,7 @@ class WGAN(tf.keras.Model):
         
         gradients_of_generator = tape.gradient(generator_loss, self.generator.trainable_variables)
         self.generator.backPropagate(gradients_of_generator, self.generator.trainable_variables)
-        return generator_loss,matched_images
+        return generator_loss,matched_images, self.generator(self.generator.seed, training=False)
 
     def generate_real_samples(self, n_samples):
         # choose random instances
@@ -199,7 +186,7 @@ class WGAN(tf.keras.Model):
         y = -np.ones((n_samples, 1)).astype(np.float32)
         return X, y
 
-    
+    @tf.function
     # use the generator to generate n fake examples, with class labels
     def generate_fake_samples(self, noise_size, n_samples):
         # generate points in latent space
@@ -232,6 +219,8 @@ class WGAN(tf.keras.Model):
         avg_loss_critic = tf.keras.metrics.Mean()
         avg_loss_gen = tf.keras.metrics.Mean()
         epoch = 0
+        n_dif_images = 4
+        directory = 'imgs'
         start_time = time.time()
         for i in range(n_steps):
             for _ in range(n_critic):
@@ -244,17 +233,19 @@ class WGAN(tf.keras.Model):
                 c_loss = self.training_step_critic(X_real,X_fake, y_real,y_fake,half_batch)
                 avg_loss_critic(c_loss)
                 
-            gen_loss, matched_images = self.training_step_generator(noise_size,batch_size,class_type)
+            gen_loss, matched_images, gen_images = self.training_step_generator(noise_size,batch_size,class_type)
             avg_loss_gen(gen_loss)
             data_access.print_training_output(i,n_steps, avg_loss_critic.result(),avg_loss_gen.result()) 
             
             if((i % (n_steps / epoches)) == 0):
-                epoch += 1
-                data_access.store_images(matched_images[:4],epoch)
+                #data_access.store_images(matched_images[:4],epoch)
+                data_access.store_images_seed(directory,gen_images[:n_dif_images],epoch)
                 with sum_writer_loss.as_default():
                     tf.summary.scalar('loss_gen', avg_loss_gen.result(),step=self.generator.optimizer.iterations)
                     tf.summary.scalar('avg_loss_critic', avg_loss_critic.result(),step=self.critic.optimizer.iterations)
+                epoch += 1
         #data_access.create_gif('200epoches')
+        data_access.create_collection(epoches,n_dif_images,directory)
         print('Time elapse {}'.format(time.time() - start_time))
 
     def generate_images(self,number_of_samples,directory):
@@ -262,5 +253,5 @@ class WGAN(tf.keras.Model):
         predictions = self.generator(seed)
         data_access.prepare_directory(directory)
         for i in range(predictions.shape[0]):
-            data_access.store_image(directory,i,predictions[i, :, :, 0])
+            data_access.store_image_simple(directory,i,predictions[i, :, :, 0])
 

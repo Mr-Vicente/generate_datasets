@@ -10,21 +10,11 @@ Created on Wed Feb 12 08:37:38 2020
     Ludwig Krippahl
 """
 
-# -*- coding: utf-8 -*-
-"""
-Created on Wed Feb 12 08:37:38 2020
-"""
-
-"""
-    Data_Access
-    
-    Frederico Vicente, NOVA FCT, MIEI
-    Ludwig Krippahl
-"""
 
 import os
 import tensorflow as tf
 import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
 import imageio 
 import glob
 
@@ -63,10 +53,22 @@ def prepare_data(dataset,generator, batch_size = 1):
         
 
     return train_x,train_y,test_x,test_y
-
-def store_image(directory,image_name,image):
+    
+def store_image_simple(directory,image_name,image):
     plt.axis('off')
     plt.imsave('{}/{}.png'.format(directory,image_name),image, cmap="gray")
+
+def store_image(directory,epoch,image,i):
+    prepare_directory(directory)
+    prepare_directory('{}/epoch_{}'.format(directory,epoch))
+    plt.axis('off')
+    plt.xlabel(epoch)
+    plt.imsave('{}/epoch_{}/id_{}.png'.format(directory,epoch,i),de_standardize(image[:,:,0]), cmap="gray")
+
+def store_images_seed(directory,images,epoch):
+    for i in range(len(images)):
+        store_image(directory,epoch,images[i],i)
+
 
 def tf_store_image(image,epoch,i):
     img = tf.image.convert_image_dtype(image,tf.uint8)
@@ -84,6 +86,19 @@ def store_images(images,epoch):
         plt.axis('off')
 
     plt.savefig('image_at_epoch_{:04d}.png'.format(epoch))
+
+def create_collection(epoches,n_dif_images,directory):
+    fig = plt.figure(figsize=(epoches,n_dif_images))
+    k=0
+    for epoch in range(epoches):
+        for im in range(n_dif_images):
+            k+=1
+            img = mpimg.imread('{}/epoch_{}/id_{}.png'.format(directory,epoch,im))
+            plt.subplot(epoches, n_dif_images, k)
+            plt.imshow(img, cmap='gray')
+            plt.axis('off')
+    plt.tight_layout()
+    plt.savefig('training.pdf')
 
 def create_gif(filename):
     anim_file = '{}.gif'.format(filename)
