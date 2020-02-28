@@ -55,7 +55,7 @@ class Generator(tf.keras.Model):
     def compute_loss(self,y_true,y_pred,class_wanted,class_prediction):
         """ Wasserstein loss - prob of classifier get it right
         """
-        k = 2 # hiper-parameter
+        k = 10 # hiper-parameter
         return backend.mean(y_true * y_pred) + (k * categorical_crossentropy(class_wanted,class_prediction))
 
     def backPropagate(self,gradients,trainable_variables):
@@ -249,8 +249,7 @@ class WGAN(tf.keras.Model):
 
     def generate_images(self,number_of_samples,directory):
         seed = tf.random.normal([number_of_samples, 100])
-        predictions = self.generator(seed)
-        data_access.prepare_directory(directory)
-        for i in range(predictions.shape[0]):
-            data_access.store_image_simple(directory,i,predictions[i, :, :, 0])
-
+        images = self.generator(seed)
+        predictions = self.classifier_m.predict_image_vector(data_access.normalize(data_access.de_standardize(images)))
+        data_access.produce_generate_figure('imgs',images,predictions)
+      

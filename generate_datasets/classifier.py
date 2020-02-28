@@ -127,3 +127,5 @@ class Classifier():
     def predict_image(self,image):
         result = tf.math.argmax(self.t_model(image,training=False),axis=1)
         return result
+    def predict_image_vector(self,image):
+        return self.t_model(image,training=False)

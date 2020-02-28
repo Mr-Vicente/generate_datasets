@@ -13,11 +13,14 @@ Created on Wed Feb 12 08:37:38 2020
 
 import os
 import tensorflow as tf
+import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import imageio 
 import glob
 
+class_names = ['T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat',
+               'Sandal', 'Shirt', 'Sneaker', 'Bag', 'Ankle boot']
 
 def standardize(x):
     return (x - 127.5) / 127.5
@@ -54,9 +57,49 @@ def prepare_data(dataset,generator, batch_size = 1):
 
     return train_x,train_y,test_x,test_y
     
-def store_image_simple(directory,image_name,image):
+def store_image_simple(directory,image_name,image,prediction):
+
     plt.axis('off')
     plt.imsave('{}/{}.png'.format(directory,image_name),image, cmap="gray")
+
+def plot_image(i, predictions_array, images):
+  predictions_array, img = predictions_array, images[i, :, :, 0]
+  plt.grid(False)
+  plt.xticks([])
+  plt.yticks([])
+
+  plt.imshow(img, cmap=plt.cm.binary)
+
+  predicted_label = np.argmax(predictions_array)
+
+  plt.xlabel("{} {:2.0f}%".format(class_names[predicted_label],
+                                100*np.max(predictions_array)),
+                                color='red')
+
+def produce_generate_figure(directory,gen_images,predictions):
+    prepare_directory(directory)
+    num_images = gen_images.shape[0]
+    num_cols = 2
+    num_rows = num_images/num_cols
+    plt.figure(figsize=(2*2*num_cols, 2*num_rows))
+    for i in range(num_images):
+        plt.subplot(num_rows, 2*num_cols, 2*i+1)
+        plot_image(i, predictions[i], gen_images)
+        plt.subplot(num_rows, 2*num_cols, 2*i+2)
+        plot_value_array(i, predictions[i])
+        _ = plt.xticks(range(10),class_names,rotation=80)
+    plt.tight_layout()
+    plt.savefig('{}/classifications.png'.format(directory))
+
+def plot_value_array(i, predictions_array):
+  plt.grid(False)
+  plt.xticks(range(10))
+  plt.yticks([])
+  thisplot = plt.bar(range(10), predictions_array, color="#777777")
+  plt.ylim([0, 1])
+  predicted_label = np.argmax(predictions_array)
+
+  thisplot[predicted_label].set_color('red')
 
 def store_image(directory,epoch,image,i):
     prepare_directory(directory)
