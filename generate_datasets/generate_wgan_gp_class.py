@@ -5,7 +5,7 @@ from spectral_normalization import SpectralNormalization
 import tensorflow as tf
 from tensorflow.keras.layers import Dense,BatchNormalization,Reshape,Conv2D,Dropout,Flatten,UpSampling2D,LeakyReLU
 from tensorflow.keras.initializers import RandomNormal
-from tensorflow.keras.optimizers import RMSprop
+from tensorflow.keras.optimizers import RMSprop,Adam
 from tensorflow.keras.losses import categorical_crossentropy
 from tensorflow.keras import backend
 
@@ -21,10 +21,10 @@ class Generator(tf.keras.Model):
         super().__init__(name='generator')
         #layers
         init = RandomNormal(stddev=0.2)
-        self.dense_1 = Dense(7*7*256, use_bias = False, input_shape = (random_noise_size,))
+        self.dense_1 = Dense(7*7*batch_s, use_bias = False, input_shape = (random_noise_size,))
         self.batchNorm1 = BatchNormalization()
         self.leaky_1 = LeakyReLU(alpha=0.2)
-        self.reshape_1 = Reshape((7,7,256))
+        self.reshape_1 = Reshape((7,7,batch_s))
         
         self.up_2 = UpSampling2D((1,1), interpolation='nearest')
         self.conv2 = Conv2D(128, (3, 3), strides = (1,1), padding = "same", use_bias = False, kernel_initializer=init)
@@ -39,7 +39,7 @@ class Generator(tf.keras.Model):
         self.up_4 = UpSampling2D((2,2), interpolation='nearest')
         self.conv4 = Conv2D(1, (3, 3), activation='tanh', strides = (1,1), padding = "same", use_bias = False, kernel_initializer=init)
 
-        self.optimizer = RMSprop(lr=0.00005)
+        self.optimizer = Adam(learning_rate=0.0001,beta_1=0,beta_2=0.9) #RMSprop(lr=0.00005)
         self.seed = tf.random.normal([batch_s, random_noise_size])
                
     def call(self, input_tensor):
@@ -52,11 +52,11 @@ class Generator(tf.keras.Model):
     def generate_noise(self,batch_size, random_noise_size):
         return tf.random.normal([batch_size, random_noise_size])
 
-    def compute_loss(self,y_true,y_pred,class_wanted,class_y):
-        """ Wasserstein loss - prob of classfier get it right
+    def compute_loss(self,y_true,y_pred,class_wanted,class_prediction):
+        """ Wasserstein loss - prob of classifier get it right
         """
         k = 2 # hiper-parameter
-        return backend.mean(y_true * y_pred) + (k * categorical_crossentropy(class_wanted,class_y))
+        return backend.mean(y_true * y_pred) + (k * categorical_crossentropy(class_wanted,class_prediction))
 
     def backPropagate(self,gradients,trainable_variables):
         self.optimizer.apply_gradients(zip(gradients, trainable_variables))
@@ -79,7 +79,7 @@ class Critic(tf.keras.Model):
         self.flat = Flatten()
         self.logits = Dense(1)  # This neuron tells us if the input is fake or real
         
-        self.optimizer = RMSprop(lr=0.00005)
+        self.optimizer = Adam(learning_rate=0.0001,beta_1=0,beta_2=0.9)
         
     def call(self, input_tensor):
         ## Definition of Forward Pass
@@ -122,7 +122,7 @@ class WGAN(tf.keras.Model):
         matched_images = tf.TensorArray(tf.float32,size=0,dynamic_size=True)
         index = 0
         for i in tf.range(len(images)):
-            gen_image = ((images[i] * 127.5) + 127.5) / 255.0 
+            gen_image = data_access.normalize(data_access.de_standardize(images[i]))
             img = tf.expand_dims(gen_image,axis=0)
             c_type = self.classifier_m.predict_image(img)
             w_list = tf.one_hot(c_type,self.num_classes)
@@ -138,24 +138,24 @@ class WGAN(tf.keras.Model):
         return images_predictions.stack(), ys.stack(),matched_images.stack()
 
     @tf.function
-    def gradient_penalty(self,generated_samples,ys):
-        alpha = backend.random_uniform(shape=[self.batch_size,1,1,1],minval=0.0,maxval=1.0)
-        differences = generated_samples - ys
-        interpolates = ys + (alpha * differences)
+    def gradient_penalty(self,generated_samples,real_images,half_batch):
+        alpha = backend.random_uniform(shape=[half_batch,1,1,1],minval=0.0,maxval=1.0)
+        differences = generated_samples - real_images
+        interpolates = real_images + (alpha * differences)
         gradients = tf.gradients(self.critic(interpolates),[interpolates])[0]
-        slopes = tf.sqrt(tf.reduce_sum(tf.square(gradients)))
+        slopes = tf.sqrt(tf.reduce_sum(tf.square(gradients),axis=[1,2,3]))
         gradient_p = tf.reduce_mean((slopes-1.)**2)
         return gradient_p
 
     @tf.function
-    def training_step_critic(self,real_imgs,gen_imgs,real_labels,gen_labels):
+    def training_step_critic(self,real_imgs,gen_imgs,real_labels,gen_labels,half_batch):
         lambda_ = 10.0
         with tf.GradientTape() as tape:
             d_x_real = self.critic(real_imgs, training=True) 
             d_x_gen = self.critic(gen_imgs, training=True) 
             critic_r_loss = self.critic.compute_loss(real_labels, d_x_real)
             critic_g_loss = self.critic.compute_loss(gen_labels, d_x_gen)
-            total_loss = critic_r_loss + critic_g_loss + (lambda_ * self.gradient_penalty(gen_imgs,real_imgs))
+            total_loss = critic_r_loss + critic_g_loss + (lambda_ * self.gradient_penalty(gen_imgs,real_imgs,half_batch))
         
         gradients_of_critic = tape.gradient(total_loss, self.critic.trainable_variables)
         self.critic.backPropagate(gradients_of_critic, self.critic.trainable_variables)
@@ -172,7 +172,7 @@ class WGAN(tf.keras.Model):
             d_x = self.generator(X_g, training=True) # Trainable?
             d_z = self.critic(d_x, training=True)
             images_predictions, ys, matched_images = self.predict_batch(d_x,class_type)
-            generator_loss = self.generator.compute_loss(d_z, y_g, images_predictions, ys)
+            generator_loss = self.generator.compute_loss(d_z, y_g, ys, images_predictions)
         
         gradients_of_generator = tape.gradient(generator_loss, self.generator.trainable_variables)
         self.generator.backPropagate(gradients_of_generator, self.generator.trainable_variables)
