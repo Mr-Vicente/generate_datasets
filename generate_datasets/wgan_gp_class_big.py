@@ -1,3 +1,4 @@
+
 # -*- coding: utf-8 -*-
 """
 Created on Sat Feb 29 09:41:56 2020
@@ -25,14 +26,17 @@ import numpy as np
 import time
 #from IPython import display
 from datetime import datetime
+import os
 
 class Generator(tf.keras.Model):
     
-    def __init__(self, random_noise_size = 100,batch_s = 64):
+    def __init__(self, noise_size = 100,batch_s = 64):
         super().__init__(name='generator')
         #layers
+        self.batch_s = batch_s
+        self.noise_size = noise_size
         init = RandomNormal(stddev=0.2)
-        self.dense_1 = Dense(5*5*batch_s, use_bias = False, input_shape = (random_noise_size,))
+        self.dense_1 = Dense(5*5*batch_s, use_bias = False, input_shape = (noise_size,))
         self.batchNorm1 = BatchNormalization()
         self.leaky_1 = LeakyReLU(alpha=0.2)
         self.reshape_1 = Reshape((5,5,batch_s))
@@ -67,8 +71,7 @@ class Generator(tf.keras.Model):
         self.conv6 = Conv2D(3, (3, 3), activation='tanh', strides = (1,1), padding = "same", use_bias = False, kernel_initializer=init)
 
         self.optimizer = Adam(learning_rate=0.0001,beta_1=0,beta_2=0.9) #RMSprop(lr=0.00005)
-        self.seed = tf.random.normal([batch_s, random_noise_size])
-               
+        
     def call(self, input_tensor):
         ## Definition of Forward Pass
         x = self.reshape_1(self.leaky_1(self.batchNorm1(self.dense_1(input_tensor))))
@@ -90,7 +93,34 @@ class Generator(tf.keras.Model):
 
     def backPropagate(self,gradients,trainable_variables):
         self.optimizer.apply_gradients(zip(gradients, trainable_variables))
-        
+
+    def save_optimizer(self):
+        weights = self.optimizer.get_weights()
+        data_access.store_weights_in_file('g_optimizer_weights',weights)
+
+    def set_seed(self):
+        self.seed = tf.random.normal([self.batch_s, self.noise_size])
+        data_access.store_seed_in_file('seed',self.seed)
+
+    def load_seed(self):
+        self.seed = data_access.load_seed_from_file('seed')
+      
+    def save_batches(self):
+        data_access.store_batch_norm('batch_norm',
+        [self.batchNorm1.get_weights(),
+        self.batchNorme.get_weights(),
+        self.batchNorm2.get_weights(),
+        self.batchNorm3.get_weights(),
+        self.batchNorm4.get_weights(),
+        self.batchNorm5.get_weights()])
+    def load_batches(self):
+        batch_weights_files = data_access.load_batch_norm('weights/batch_norm')
+        self.batchNorm1.set_weights(batch_weights_files[0]),
+        self.batchNorme.set_weights(batch_weights_files[1]),
+        self.batchNorm2.set_weights(batch_weights_files[2]),
+        self.batchNorm3.set_weights(batch_weights_files[3]),
+        self.batchNorm4.set_weights(batch_weights_files[4]),
+        self.batchNorm5.set_weights(batch_weights_files[5])
         
 class Critic(tf.keras.Model):
     def __init__(self):
@@ -118,7 +148,7 @@ class Critic(tf.keras.Model):
         self.logits = Dense(1)  # This neuron tells us how real or fake the input is
         
         self.optimizer = Adam(learning_rate=0.0001,beta_1=0,beta_2=0.9)
-        
+
     def call(self, input_tensor):
         ## Definition of Forward Pass
         x = self.dropout_1(self.leaky_1(self.conv_1(input_tensor)))
@@ -135,14 +165,26 @@ class Critic(tf.keras.Model):
 
     def backPropagate(self,gradients,trainable_variables):
         self.optimizer.apply_gradients(zip(gradients, trainable_variables))
+
+    def save_optimizer(self):
+        weights = self.optimizer.get_weights()
+        data_access.store_weights_in_file('c_optimizer_weights',weights)
         
         
         
 class Big_WGAN(tf.keras.Model):
-    def __init__(self,batch_size = 64,classifier_filename='TypeC_0.99_ConvExp19.hdf5'):
-        super().__init__(name = "WGAN")
-        self.generator = Generator(100,batch_size)
+    def __init__(self,batch_size = 64,random_noise_size = 100, classifier_filename='TypeC_0.99_ConvExp19.hdf5'):
+        super().__init__(name = "BIG_WGAN")
+        self.random_noise_size = random_noise_size
+        self.generator = Generator(random_noise_size,batch_size)
+        if('seed.npz' not in os.listdir('.')):
+            self.generator.set_seed()
+        else :
+            self.generator.load_seed()
         self.critic = Critic()
+        if ('weights' in os.listdir('.')):
+            self.critic.load_weights('/weights/c_weights/c_weights')
+            self.generator.load_weights('/weights/g_weights/g_weights')
         self.classifier = tf.keras.models.load_model(classifier_filename)
                
         self.train_dataset = None
@@ -161,11 +203,16 @@ class Big_WGAN(tf.keras.Model):
         ys = tf.TensorArray(tf.float32,size=0,dynamic_size=True)
         matched_images = tf.TensorArray(tf.float32,size=0,dynamic_size=True)
         index = 0
+        basis = tf.convert_to_tensor([0,1],dtype=tf.float32)
         for i in tf.range(len(images)):
             gen_image = data_access.normalize(data_access.de_standardize(images[i]))
             img = tf.expand_dims(gen_image,axis=0)
-            c_type = tf.math.argmax(self.classifier(img))
-            w_list = tf.one_hot(c_type,self.num_classes)
+            c = self.classifier(img)
+            if(self.num_classes == 2):
+                x = tf.subtract(c,basis)
+                w_list = tf.abs(x)
+            else:
+                w_list = c
             w_list = tf.reshape(w_list,(w_list.shape[1],))
             
             images_predictions = images_predictions.write(i,w_list)
@@ -239,15 +286,28 @@ class Big_WGAN(tf.keras.Model):
         return X, y
 
     def define_loss_tensorboard(self):
+        """
+        Tensorboard Integration - loss scallars
+        """
         logdir="logs/train/" + datetime.now().strftime("%Y%m%d-%H%M%S")
         return tf.summary.create_file_writer(logdir=logdir)
 
     def define_graph_tensorboard(self):
+        """
+        Tensorboard Integration - grath
+        """
         logdir="logs/graph/" + datetime.now().strftime("%Y%m%d-%H%M%S")
         return tf.summary.create_file_writer(logdir=logdir)
     
-    def train_model(self,epoches,n_critic=5,noise_size=100,class_type=0,directory = 'imgs'):
+    def train_model(self,epoches,n_critic=5,class_type=0,directory = 'imgs'):
+        """
+        Train model for an amount of epochs
 
+        :param epoches: - cycles of training over all dataset
+        :param n_critic: - number of times critic trains more than generator
+        :param class_type: - class number: converge generated data to this class
+        :param directory: - directory where images will be placed during training
+        """
         batch_per_epoch = int(self.train_dataset.shape[0] / self.batch_size)
 
         # calculate the number of training iterations
@@ -267,28 +327,28 @@ class Big_WGAN(tf.keras.Model):
                 # get randomly selected 'real' samples
                 X_real, y_real = self.generate_real_samples(half_batch)
                 # generate 'fake' examples
-                X_fake, y_fake = self.generate_fake_samples(noise_size, half_batch)
+                X_fake, y_fake = self.generate_fake_samples(self.random_noise_size, half_batch)
                 
                 # update critic model weights
                 c_loss = self.training_step_critic(X_real,X_fake, y_real,y_fake,half_batch)
                 avg_loss_critic(c_loss)
                 
-            gen_loss, matched_images, gen_images = self.training_step_generator(noise_size,class_type)
+            gen_loss, matched_images, gen_images = self.training_step_generator(self.random_noise_size,class_type)
             avg_loss_gen(gen_loss)
             data_access.print_training_output(i,n_steps, avg_loss_critic.result(),avg_loss_gen.result()) 
-            
             if((i % (n_steps / epoches)) == 0):
                 data_access.store_images_seed(directory,gen_images[:n_dif_images],epoch)
                 with sum_writer_loss.as_default():
                     tf.summary.scalar('loss_gen', avg_loss_gen.result(),step=self.generator.optimizer.iterations)
                     tf.summary.scalar('avg_loss_critic', avg_loss_critic.result(),step=self.critic.optimizer.iterations)
                 epoch += 1
-        #data_access.create_collection(epoches,n_dif_images,directory)
+            if((epoch % 10) == 0):
+                self.generator.save_weights('/weights/g_weights/g_weights',save_format='tf')
+                self.critic.save_weights('/weights/c_weights/c_weights',save_format='tf')
         print('Time elapse {}'.format(time.time() - start_time))
 
     def generate_images(self,number_of_samples,directory):
-        seed = tf.random.normal([number_of_samples, 100])
+        seed = tf.random.normal([number_of_samples, self.random_noise_size])
         images = self.generator(seed)
         predictions = self.classifier(data_access.normalize(data_access.de_standardize(images)))
         data_access.produce_generate_figure('imgs',images,predictions)
-      

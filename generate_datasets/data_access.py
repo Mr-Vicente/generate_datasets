@@ -41,74 +41,51 @@ def normalize(x):
 def de_normalize(x):
     return x * 255.
 
-def load_data(data_type = '.png', data_dir='images', resize_shape=(152,152)):
+def load_data(data_type = '.png', data_dir='npz_imgs', resize_shape=(152,152)):
     if (data_type == '.png'):
         return np.array([cv2.cvtColor(cv2.resize(cv2.imread(os.path.join(data_dir, img)),dsize=resize_shape),cv2.COLOR_BGR2RGB) for img in os.listdir(data_dir) if img.endswith(data_type)])
     elif (data_type == '.npz'):
         images = list()
         for img in os.listdir(data_dir):
-            currentSetOfImages = np.load(os.path.join(data_dir, img),'r')
-            print(currentSetOfImages.files)
-            imgs = currentSetOfImages['images']
-            images.append(imgs)
+            if(img.endswith(data_type)):
+                currentSetOfImages = np.load(os.path.join(data_dir, img),'r')
+                print(currentSetOfImages.files)
+                imgs = currentSetOfImages['images']
+                images.append(imgs)
         return images, len(os.listdir(data_dir))
-      
-'''
-def prepare_data(dataset,generator, batch_size = 1, resize=None):
-    (train_x, train_y),(test_x,test_y) = dataset
-    
-    if(resize is not None):
-        train_x = tf.image.resize(train_x, resize)
-        test_x = tf.image.resize(test_x, resize)
-        
-    train_x = train_x.reshape(train_x.shape[0],train_x.shape[1],train_x.shape[2],1).astype('float32')
 
-    if(generator == 'gan'):
-        train_x = standardize(train_x)
-        test_x = standardize(test_x)
-    elif(generator == 'vae'):
-        train_x = normalize(train_x)
-        test_x = normalize(test_x)
+def store_weights_in_file(filename,weights_):
+    np.savez('{}.npz'.format(filename),weights=weights_)
 
-        train_x[train_x >= .5] = 1
-        train_x[train_x < .5] = 0
-        test_x[test_x >= .5] = 1
-        test_x[test_x < .5] = 0
-        
-        buffer_size_train = train_x.shape[0]
-        buffer_size_test = test_x.shape[0]
-        
-        train_x = tf.data.Dataset.from_tensor_slices(train_x).shuffle(buffer_size_train).batch(batch_size)
-        test_x = tf.data.Dataset.from_tensor_slices(test_x).shuffle(buffer_size_test).batch(batch_size)
-        
+def load_weights_from_file(filename):
+    weights = np.load('{}.npz'.format(filename),allow_pickle=True)['weights']
+    print(weights.shape)
+    weights = weights.tolist()
+    return weights
 
-    return train_x,train_y,test_x,test_y
- 
-def prepare_data(dataset,generator, batch_size = 1):
-    train_x = dataset
-    
-    train_x = tf.convert_to_tensor(train_x,dtype=tf.float32)
-  
-    if(generator == 'gan'):
-        train_x = standardize(train_x)
-    elif(generator == 'vae'):
-        train_x = normalize(train_x)
+def store_seed_in_file(filename,seed_):
+    np.savez('{}.npz'.format(filename),seed=seed_)
 
-        train_x[train_x >= .5] = 1
-        train_x[train_x < .5] = 0
-        test_x[test_x >= .5] = 1
-        test_x[test_x < .5] = 0
-        
-        buffer_size_train = train_x.shape[0]
-        buffer_size_test = test_x.shape[0]
-        
-        train_x = tf.data.Dataset.from_tensor_slices(train_x).shuffle(buffer_size_train).batch(batch_size)
-        test_x = tf.data.Dataset.from_tensor_slices(test_x).shuffle(buffer_size_test).batch(batch_size)
-        
+def load_seed_from_file(filename):
+    weights = np.load('{}.npz'.format(filename),allow_pickle=True)['seed']
+    return weights
 
-    return train_x, None, None, None
-'''
-def prepare_data(generator, batch_size = 1,data_dir='imgs'):
+def store_batch_norm(filename,weights_):
+    if('batch_norm' not in os.listdir('./weights')):
+        prepare_directory('weights/batch_norm')
+    for i in range(len(weights_)):
+        np.savez('weights/batch_norm/{}_{}.npz'.format(filename,i),weights=weights_[i])
+
+def load_batch_norm(data_dir):
+    ws = list()
+    for weight in os.listdir(data_dir):
+        currentSetOfWeights = np.load(os.path.join(data_dir, weight),'r')
+        print(currentSetOfWeights.files)
+        w = currentSetOfWeights['weights']
+        ws.append(w)
+    return ws
+
+def prepare_data(generator, batch_size = 1,data_dir='npz_imgs'):
 
     train_x, npzs = load_data(data_type = '.npz', data_dir=data_dir)
     images_size = 5000 * npzs
@@ -175,11 +152,15 @@ def produce_generate_figure(directory,gen_images,predictions):
     num_cols = 2
     num_rows = num_images/num_cols
     plt.figure(figsize=(2*2*num_cols, 2*num_rows))
+    basis = tf.convert_to_tensor([0,1],dtype=tf.float32)
     for i in range(num_images):
         plt.subplot(num_rows, 2*num_cols, 2*i+1)
-        plot_image(i, predictions[i], gen_images)
+        p = tf.subtract(predictions[i],basis)
+        p = tf.abs(p)
+        p = tf.reshape(p,shape=(2,))
+        plot_image(i, p, gen_images)
         plt.subplot(num_rows, 2*num_cols, 2*i+2)
-        plot_value_array(i, predictions[i])
+        plot_value_array(i, p)
         _ = plt.xticks(range(len(class_names)),class_names,rotation=80)
     plt.tight_layout()
     plt.savefig('{}/classifications.png'.format(directory))
