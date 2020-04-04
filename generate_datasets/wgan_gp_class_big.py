@@ -36,39 +36,48 @@ class Generator(tf.keras.Model):
         self.batch_s = batch_s
         self.noise_size = noise_size
         init = RandomNormal(stddev=0.2)
+        
         self.dense_1 = Dense(5*5*batch_s, use_bias = False, input_shape = (noise_size,))
         self.batchNorm1 = BatchNormalization()
         self.leaky_1 = LeakyReLU(alpha=0.2)
         self.reshape_1 = Reshape((5,5,batch_s))
+        #SHAPE = (5,5,batch_s)
         
         self.up_e = UpSampling2D((1,1), interpolation='nearest')
         self.conve = Conv2D(256, (3, 3), strides = (1,1), padding = "same", use_bias = False, kernel_initializer=init)
         self.batchNorme = BatchNormalization()
         self.leaky_e = LeakyReLU(alpha=0.2)
+        #SHAPE = (5,5,x)
 
         self.up_2 = UpSampling2D((2,2), interpolation='nearest')
         self.conv2 = Conv2D(128, (3, 3), strides = (1,1), padding = "same", use_bias = False, kernel_initializer=init)
         self.batchNorm2 = BatchNormalization()
         self.leaky_2 = LeakyReLU(alpha=0.2)
+        #SHAPE = (10,10,x)
         
         self.up_3 = UpSampling2D((2,2), interpolation='nearest')
         self.conv3 = Conv2D(64, (3, 3), strides = (1,1), padding = "same", use_bias = False, kernel_initializer=init)
+        #SHAPE = (20,20,x)
         self.crop_3 = Cropping2D(cropping=((1,0),(1,0)))
         self.batchNorm3 = BatchNormalization()
         self.leaky_3 = LeakyReLU(alpha=0.2)
+        #SHAPE = (19,19,x)
         
         self.up_4 = UpSampling2D((2,2), interpolation='nearest')
         self.conv4 = Conv2D(32, (3, 3), strides = (1,1), padding = "same", use_bias = False, kernel_initializer=init)
         self.batchNorm4 = BatchNormalization()
         self.leaky_4 = LeakyReLU(alpha=0.2)
+        #SHAPE = (38,38,x)
         
         self.up_5 = UpSampling2D((2,2), interpolation='nearest')
         self.conv5 = Conv2D(16, (3, 3), strides = (1,1), padding = "same", use_bias = False, kernel_initializer=init)
         self.batchNorm5 = BatchNormalization()
         self.leaky_5 = LeakyReLU(alpha=0.2)
+        #SHAPE = (76,76,x)
         
         self.up_6 = UpSampling2D((2,2), interpolation='nearest')
         self.conv6 = Conv2D(3, (3, 3), activation='tanh', strides = (1,1), padding = "same", use_bias = False, kernel_initializer=init)
+        #SHAPE = (152,152,x)
 
         self.optimizer = Adam(learning_rate=0.0001,beta_1=0,beta_2=0.9) #RMSprop(lr=0.00005)
         
@@ -173,19 +182,15 @@ class Critic(tf.keras.Model):
         
         
 class Big_WGAN(tf.keras.Model):
-    def __init__(self,batch_size = 64,random_noise_size = 100, classifier_filename='TypeC_0.99_ConvExp19.hdf5'):
+    def __init__(self,batch_size = 64,random_noise_size = 100, classifier_filename='classifiers/TypeC_0.99_ConvExp19.hdf5'):
         super().__init__(name = "BIG_WGAN")
         self.random_noise_size = random_noise_size
         self.generator = Generator(random_noise_size,batch_size)
-        if('seed.npz' not in os.listdir('.')):
-            self.generator.set_seed()
-        else :
-            self.generator.load_seed()
-        self.critic = Critic()
-        if ('weights' in os.listdir('.')):
-            self.critic.load_weights('/weights/c_weights/c_weights')
-            self.generator.load_weights('/weights/g_weights/g_weights')
         self.classifier = tf.keras.models.load_model(classifier_filename)
+        self.critic = Critic()
+        
+        self.prepare_seed()
+        self.load_weights()
                
         self.train_dataset = None
         self.test_dataset = None
@@ -196,9 +201,25 @@ class Big_WGAN(tf.keras.Model):
     def load_dataset(self,dataset,n_classes):
         self.train_dataset,self.train_labels,self.test_dataset,self.test_labels = dataset
         self.num_classes = n_classes
+        
+    def load_weights(self):
+        if ('weights' in os.listdir('.')):
+            self.critic.load_weights('weights/c_weights/c_weights')
+            self.generator.load_weights('weights/g_weights/g_weights')
+    def prepare_seed():
+        if('seed.npz' not in os.listdir('.')):
+            self.generator.set_seed()
+        else :
+            self.generator.load_seed()
 
     @tf.function
     def predict_batch(self,images,type_class):
+        """
+        Classify each image received and prepare for loss function
+
+        :param images: - images tensors
+        :param type_class: - class chosen to influence generator. Its must be a number
+        """
         images_predictions = tf.TensorArray(tf.float32,size=0,dynamic_size=True)
         ys = tf.TensorArray(tf.float32,size=0,dynamic_size=True)
         matched_images = tf.TensorArray(tf.float32,size=0,dynamic_size=True)
@@ -269,10 +290,11 @@ class Big_WGAN(tf.keras.Model):
         # choose random instances
         ix = np.random.randint(0, self.train_dataset.shape[0], n_samples)
         # select images
-        X = tf.gather(self.train_dataset,ix) #self.train_dataset[ix]
+        X = self.train_dataset[ix] #tf.gather(self.train_dataset,ix) 
         # associate with class labels of -1 for 'real'
         y = -np.ones((n_samples, 1)).astype(np.float32)
-        return X, y
+        #convert X to tensor
+        return tf.convert_to_tensor(X), y
 
     @tf.function
     # use the generator to generate n fake examples, with class labels
@@ -299,7 +321,7 @@ class Big_WGAN(tf.keras.Model):
         logdir="logs/graph/" + datetime.now().strftime("%Y%m%d-%H%M%S")
         return tf.summary.create_file_writer(logdir=logdir)
     
-    def train_model(self,epoches,n_critic=5,class_type=0,directory = 'imgs'):
+    def train_model(self,epoches,n_critic=5,class_type=0,directory = 'imgs',n_img_per_epoch = 4):
         """
         Train model for an amount of epochs
 
@@ -319,8 +341,10 @@ class Big_WGAN(tf.keras.Model):
         #self.classifier_m.load_local_model()
         avg_loss_critic = tf.keras.metrics.Mean()
         avg_loss_gen = tf.keras.metrics.Mean()
-        epoch = 0
-        n_dif_images = 4
+        try:
+            epoch = int(open('current_epoch.txt').read())
+        except:
+            epoch = 0
         start_time = time.time()
         for i in range(n_steps):
             for _ in range(n_critic):
@@ -337,14 +361,15 @@ class Big_WGAN(tf.keras.Model):
             avg_loss_gen(gen_loss)
             data_access.print_training_output(i,n_steps, avg_loss_critic.result(),avg_loss_gen.result()) 
             if((i % (n_steps / epoches)) == 0):
-                data_access.store_images_seed(directory,gen_images[:n_dif_images],epoch)
+                data_access.store_images_seed(directory,gen_images[:n_img_per_epoch],epoch)
                 with sum_writer_loss.as_default():
                     tf.summary.scalar('loss_gen', avg_loss_gen.result(),step=self.generator.optimizer.iterations)
                     tf.summary.scalar('avg_loss_critic', avg_loss_critic.result(),step=self.critic.optimizer.iterations)
                 epoch += 1
-            if((epoch % 10) == 0):
-                self.generator.save_weights('/weights/g_weights/g_weights',save_format='tf')
-                self.critic.save_weights('/weights/c_weights/c_weights',save_format='tf')
+                if((epoch % 1) == 0):
+                    self.generator.save_weights('weights/g_weights/g_weights',save_format='tf')
+                    self.critic.save_weights('weights/c_weights/c_weights',save_format='tf')
+                    data_access.write_current_epoch(filename='current_epoch',epoch)
         print('Time elapse {}'.format(time.time() - start_time))
 
     def generate_images(self,number_of_samples,directory):

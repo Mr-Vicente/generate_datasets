@@ -10,6 +10,9 @@ Created on Wed Feb 12 08:37:38 2020
     Ludwig Krippahl
 """
 
+#######################################
+'''           Imports               '''
+#######################################
 
 import os
 import tensorflow as tf
@@ -26,8 +29,14 @@ class_names = ['T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat',
 
 class_names = ['TypeC','TypeO']
 
+#######################################
+'''           Operations            '''
+#######################################
+
 def standardize(x):
-    return (x - 127.5) / 127.5
+    x -= 127.5
+    x /= 127.5
+    return x
 
 def de_standardize(x):
     return abs((x * 127.5) + 127.5)
@@ -36,23 +45,59 @@ def de_standardize_norm(x):
     return np.interp(x,[-1,1],[0,1])
 
 def normalize(x):
-    return x / 255.
+    x /= 255.
+    return x
 
 def de_normalize(x):
-    return x * 255.
+    x *= 255.
+    return x
+
+#######################################
+'''           Prepare Data          '''
+#######################################
 
 def load_data(data_type = '.png', data_dir='npz_imgs', resize_shape=(152,152)):
+    """
+    Load images from .png or .npz files into numpy vectors
+    """
     if (data_type == '.png'):
         return np.array([cv2.cvtColor(cv2.resize(cv2.imread(os.path.join(data_dir, img)),dsize=resize_shape),cv2.COLOR_BGR2RGB) for img in os.listdir(data_dir) if img.endswith(data_type)])
     elif (data_type == '.npz'):
-        images = list()
+        images = None
+        max_npzs = 10
+        images_counter = 0
         for img in os.listdir(data_dir):
             if(img.endswith(data_type)):
                 currentSetOfImages = np.load(os.path.join(data_dir, img),'r')
-                print(currentSetOfImages.files)
-                imgs = currentSetOfImages['images']
-                images.append(imgs)
-        return images, len(os.listdir(data_dir))
+                print('Loaded npz',img)
+                imgs = np.reshape(currentSetOfImages['images'].astype(np.float32),newshape=(-1,152,152,3))
+                if images is None:
+                    images = imgs
+                else:
+                    images = np.concatenate([images,imgs],axis=0)
+                images_counter += 1
+            if(images_counter == max_npzs):
+                break
+        return images,images_counter
+    
+def prepare_data(generator, batch_size = 1,data_dir='npz_imgs'):
+
+    train_x,npzs = load_data(data_type = '.npz', data_dir=data_dir)
+    print('Data loded: ',npzs,' npz files - ',npzs * 5000, ' images')
+    
+    if(generator == 'gan'):
+        train_x = standardize(train_x)
+
+    elif(generator == 'vae'):
+        train_x = normalize(train_x)
+        buffer_size_train = train_x.shape[0]
+        train_x = tf.data.Dataset.from_tensor_slices(train_x).shuffle(buffer_size_train).batch(batch_size,drop_remainder=True)
+
+    return train_x,None, None, None
+
+#######################################
+'''      Store and load Files       '''
+#######################################
 
 def store_weights_in_file(filename,weights_):
     np.savez('{}.npz'.format(filename),weights=weights_)
@@ -85,24 +130,9 @@ def load_batch_norm(data_dir):
         ws.append(w)
     return ws
 
-def prepare_data(generator, batch_size = 1,data_dir='npz_imgs'):
-
-    train_x, npzs = load_data(data_type = '.npz', data_dir=data_dir)
-    images_size = 5000 * npzs
-    train_x = tf.convert_to_tensor(train_x,dtype=tf.float32)
-    print(train_x.shape)
-    train_x = tf.reshape(train_x,shape=(images_size,152,152,3))
-    print(train_x.shape)
-
-    if(generator == 'gan'):
-        train_x = standardize(train_x)
-
-    elif(generator == 'vae'):
-        train_x = normalize(train_x)
-        buffer_size_train = train_x.shape[0]
-        train_x = tf.data.Dataset.from_tensor_slices(train_x).shuffle(buffer_size_train).batch(batch_size,drop_remainder=True)
-
-    return train_x,None, None, None
+#######################################
+'''      Store and load Images      '''
+#######################################
 
 def get_images_of_certain_class(csv_filename,data_dir,class_type):
     images,npzs = load_data(data_type = '.npz', data_dir=data_dir)
@@ -131,50 +161,8 @@ def store_image_simple(directory,image_name,image,prediction):
 
     plt.axis('off')
     plt.imsave('{}/{}.png'.format(directory,image_name),image)
-
-def plot_image(i, predictions_array, images):
-  img = prepare_img(images[i])
-  plt.grid(False)
-  plt.xticks([])
-  plt.yticks([])
-
-  plt.imshow(img)
-
-  predicted_label = np.argmax(predictions_array)
-
-  plt.xlabel("{} {:2.0f}%".format(class_names[predicted_label],
-                                100*np.max(predictions_array)),
-                                color='red')
-
-def produce_generate_figure(directory,gen_images,predictions):
-    prepare_directory(directory)
-    num_images = gen_images.shape[0]
-    num_cols = 2
-    num_rows = num_images/num_cols
-    plt.figure(figsize=(2*2*num_cols, 2*num_rows))
-    basis = tf.convert_to_tensor([0,1],dtype=tf.float32)
-    for i in range(num_images):
-        plt.subplot(num_rows, 2*num_cols, 2*i+1)
-        p = tf.subtract(predictions[i],basis)
-        p = tf.abs(p)
-        p = tf.reshape(p,shape=(2,))
-        plot_image(i, p, gen_images)
-        plt.subplot(num_rows, 2*num_cols, 2*i+2)
-        plot_value_array(i, p)
-        _ = plt.xticks(range(len(class_names)),class_names,rotation=80)
-    plt.tight_layout()
-    plt.savefig('{}/classifications.png'.format(directory))
-
-def plot_value_array(i, predictions_array):
-  plt.grid(False)
-  plt.xticks(range(len(class_names)))
-  plt.yticks([])
-  thisplot = plt.bar(range(len(class_names)), predictions_array, color="#777777")
-  plt.ylim([0, 1])
-  predicted_label = np.argmax(predictions_array)
-
-  thisplot[predicted_label].set_color('red')
-
+    
+    
 def store_image(directory,epoch,image,i,type_de):
     prepare_directory(directory)
     prepare_directory('{}/epoch_{}'.format(directory,epoch))
@@ -220,7 +208,62 @@ def create_collection(epoches,n_dif_images,directory):
     plt.tight_layout()
     plt.savefig('training.png')
     
+def write_current_epoch(filename,epoch):
+    with open('{}.txt'.format(filename),'w') as ofil:
+        ofil.write(f'{epoch}')
+    print('Saved epoch ',epoch)
+        
+def prepare_directory(directory = "imgs"):
+    if not os.path.exists(directory):
+        os.makedirs(directory)
     
+#######################################
+'''         Visualizations          '''
+#######################################
+
+def plot_image(i, predictions_array, images):
+    img = prepare_img(images[i])
+    plt.grid(False)
+    plt.xticks([])
+    plt.yticks([])
+
+    plt.imshow(img)
+
+    predicted_label = np.argmax(predictions_array)
+
+    plt.xlabel("{} {:2.0f}%".format(class_names[predicted_label],
+                                100*np.max(predictions_array)),
+                                color='red')
+
+def produce_generate_figure(directory,gen_images,predictions):
+    prepare_directory(directory)
+    num_images = gen_images.shape[0]
+    num_cols = 2
+    num_rows = num_images/num_cols
+    plt.figure(figsize=(2*2*num_cols, 2*num_rows))
+    basis = tf.convert_to_tensor([0,1],dtype=tf.float32)
+    for i in range(num_images):
+        plt.subplot(num_rows, 2*num_cols, 2*i+1)
+        p = tf.subtract(predictions[i],basis)
+        p = tf.abs(p)
+        p = tf.reshape(p,shape=(2,))
+        plot_image(i, p, gen_images)
+        plt.subplot(num_rows, 2*num_cols, 2*i+2)
+        plot_value_array(i, p)
+        _ = plt.xticks(range(len(class_names)),class_names,rotation=80)
+    plt.tight_layout()
+    plt.savefig('{}/classifications.png'.format(directory))
+
+def plot_value_array(i, predictions_array):
+    plt.grid(False)
+    plt.xticks(range(len(class_names)))
+    plt.yticks([])
+    thisplot = plt.bar(range(len(class_names)), predictions_array, color="#777777")
+    plt.ylim([0, 1])
+    predicted_label = np.argmax(predictions_array)
+
+    thisplot[predicted_label].set_color('red')
+  
 def create_gif(filename):
     anim_file = '{}.gif'.format(filename)
     with imageio.get_writer(anim_file, mode='I') as writer:
@@ -244,14 +287,29 @@ def create_gif(filename):
         pass
     else:
         files.download(anim_file)
+
+
+#######################################
+'''             Stats              '''
+#######################################
+
+def stats(predictions):
+    counter = 0
+    n_images = len(predictions)
+    for i in range(n_images):
+        t = predictions[i]
+        if t > 0.50:
+            counter += 1
+    print('From {} images, {} belong to class C ({}%)'.format(n_images,counter,(counter/n_images) * 100))
+            
+                       
+#######################################
+'''             Prints              '''
+#######################################
         
 def print_training_output(step, n_steps, critic_loss, gen_loss):
     print('-----------------------------')
     print('{}th OUT OF {} steps'.format(step,n_steps))
     print('Critic Loss: {}'.format(critic_loss))
     print('Generator Loss: {}'.format(gen_loss))
-
-def prepare_directory(directory = "imgs"):
-    if not os.path.exists(directory):
-        os.makedirs(directory)
         
