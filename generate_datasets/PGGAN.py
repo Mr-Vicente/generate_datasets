@@ -90,7 +90,7 @@ class PGGAN(tf.keras.Model):
             input_s = (in_shape[-2].value*2, in_shape[-2].value*2, in_shape[-1].value)
             critic = Critic(m_type = ModelType.NORMAL, input_shape = input_s)
             Avgp2d = critic.layers.get_layer('avgP2d')
-            other_critic = Generator(m_type = ModelType.LAST, old_model = last_model, block_new = Avgp2d)
+            other_critic = Generator(m_type = ModelType.SPECIAL, old_model = last_model, block_new = Avgp2d.output)
             models_list.append([critic,other_critic])
         
         return models_list
@@ -153,8 +153,9 @@ class PGGAN(tf.keras.Model):
         wgan_normal = self.wgans[0][0]
         gen_shape = g_normal.output_shape
         scaled_images = self.scale_dataset(self.train_dataset, gen_shape[1:])
+        wgan_normal.train(scaled_images)
         
-        for i in range(1, len(wgans)):
+        for i in range(1, len(self.wgans)):
             
             [g_normal, g_fadein] = self.generators[i]
             [c_normal, c_fadein] = self.critics[i]
@@ -164,8 +165,9 @@ class PGGAN(tf.keras.Model):
             scaled_images = self.scale_dataset(self.train_dataset, gen_shape[1:])
             
             #fadein train
-            
+            wgan_fadein.train(scaled_images)
             #normal train
+            wgan_normal.train(scaled_images)
 
     # ??????????
     def train_epoches(self):
@@ -225,7 +227,7 @@ class Generator(tf.keras.Model):
             x = self.out(x)
         else:
             x = self.old_model(x)
-            x = self.weigth_sum([x,curr_model_out])
+            x = self.weigth_sum([x,self.curr_model_out])
         return x
     
     def generate_noise(self,batch_size, random_noise_size):
@@ -264,9 +266,12 @@ class Critic(tf.keras.Model):
             self.mini_batch_stdv = MinibatchStdev()
             self.flatten = Flatten()
             self.logit = Dense(1)
-        elif m_type == ModelType.Normal:
+        elif m_type == ModelType.Normal or m_type == ModelType.SPECIAL:
             self.avg_pool = AveragePooling2D(name='avgP2d')
             self.old_model = kwargs.get('old_model')
+        if m_type == ModelType.SPECIAL:
+            self.block_new = kwargs.get('block_new')
+            self.weigth_sum = WeightedSum()
         # define new block
         self.conv_1 = Conv2D(128, (1,1), padding='same', kernel_initializer=init, kernel_constraint=const, input_shape = kwargs.get('input_shape'))
         self.leaky_1 = LeakyReLU(alpha=0.2)
@@ -280,26 +285,27 @@ class Critic(tf.keras.Model):
     def call(self, input_tensor):
         ## Definition of Forward Pass
         x = input_tensor
-        x = self.leaky_1(self.conv_1(x))
-        if self.model_type == ModelType.Last:
-            x = MinibatchStdev(x)
-        x = self.leaky_2(self.conv_2(x))
-        x = self.leaky_3(self.conv_3(x))
-        if self.model_type == ModelType.Last:
-            x = self.logit(self.flatten(x))
-        elif self.model_type == ModelType.NORMAL:
-            x = self.avg_pool(x)
-            for i in range(1, len(self.old_model.layers)):
-                x = self.old_model.layers[i](x)
-        else:
+        if self.model_type == ModelType.SPECIAL:
             #x = self.block_new(x)
-            x = avg_pool(x)
+            x = self.avg_pool(x)
             x = self.old_model.layers[1](x)
             x = self.old_model.layers[2](x)
             #y = input(x)
-            x = weightsum([x,inp(y)])
+            x = self.weigth_sum([x,self.block_new])
             for i in range(1,len(self.old_model.layers)):
                 x = self.old_model.layers[i](x)
+        else:
+            x = self.leaky_1(self.conv_1(x))
+            if self.model_type == ModelType.Last:
+                x = MinibatchStdev(x)
+            x = self.leaky_2(self.conv_2(x))
+            x = self.leaky_3(self.conv_3(x))
+            if self.model_type == ModelType.Last:
+                x = self.logit(self.flatten(x))
+            elif self.model_type == ModelType.NORMAL:
+                x = self.avg_pool(x)
+                for i in range(1, len(self.old_model.layers)):
+                    x = self.old_model.layers[i](x)
         return x
 
     def compute_loss(self,y_true,y_pred):
