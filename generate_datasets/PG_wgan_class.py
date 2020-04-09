@@ -6,13 +6,12 @@ Created on Sat Apr  4 11:00:34 2020
 """
 
 import data_access
-from spectral_normalization import SpectralNormalization
+from PG_extra_classes import WeightedSum
 
 import tensorflow as tf
-from tensorflow.keras.layers import Dense,BatchNormalization,Reshape,Conv2D,Dropout,Flatten,UpSampling2D,LeakyReLU,Cropping2D
-from tensorflow.keras.initializers import RandomNormal
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.losses import categorical_crossentropy
+#from tensorflow.keras.initializers import RandomNormal
+#from tensorflow.keras.optimizers import Adam
+#from tensorflow.keras.losses import categorical_crossentropy
 from tensorflow.keras import backend
 
 import numpy as np
@@ -23,33 +22,59 @@ from datetime import datetime
 import os
 
 class WGAN(tf.keras.Model):
-    def __init__(generator,critic, classifier_filename='TypeC_0.99_ConvExp19.hdf5'):
+    def __init__(self,gen=None,crit=None,latent_size=100, classifier_filename='TypeC_0.99_ConvExp19.hdf5'):
         super().__init__(name = "WGAN")
-        self.random_noise_size = random_noise_size
-        self.generator = generator
+        self.random_noise_size = latent_size
+        self.generator = gen
         self.classifier = tf.keras.models.load_model(classifier_filename)
-        self.critic =critic
+        self.critic = crit
+        self.batch_size=16
         
         self.prepare_seed()
         self.load_weights()
                
         self.train_dataset = None
-        self.batch_size = batch_size
+        
+    #######################################
+    '''           Preparation           '''
+    #######################################
         
     def load_dataset(self,dataset,n_classes):
-        self.train_dataset,self.train_labels,self.test_dataset,self.test_labels = dataset
+        self.train_dataset = dataset
         self.num_classes = n_classes
         
     def load_weights(self):
         if ('weights' in os.listdir('.')):
             self.critic.load_weights('weights/c_weights/c_weights')
             self.generator.load_weights('weights/g_weights/g_weights')
-    def prepare_seed():
+    def prepare_seed(self):
         if('seed.npz' not in os.listdir('.')):
             self.generator.set_seed()
         else :
             self.generator.load_seed()
 
+    #######################################
+    '''           Operations            '''
+    #######################################
+    def update_fadein(self, models, step, n_steps):
+        
+        alpha = step / float(n_steps -1)
+        for mod in models:
+            for gen in mod.layers:
+                for layer in gen.layers:
+                    if isinstance(layer, WeightedSum):
+                        #print("AQUI")
+                        backend.set_value(layer.alpha,alpha)
+                    
+    def start_fadein(self,i):
+         self.generator.start_fading(i)
+         self.critic.start_fading(i)
+    def end_fadein(self,i):
+         self.generator.stop_fading(i)
+         self.critic.end_fading(i)
+    #######################################
+    '''            training             '''
+    #######################################
     @tf.function
     def predict_batch(self,images,type_class):
         """
@@ -116,14 +141,17 @@ class WGAN(tf.keras.Model):
         y_g = -np.ones((self.batch_size, 1)).astype(np.float32)
         with tf.GradientTape() as tape:
             d_x = self.generator(X_g, training=True) # Trainable?
-            d_z = self.critic(d_x, training=True)
-            images_predictions, ys, matched_images = self.predict_batch(d_x,class_type)
+            d_z = self.critic(d_x, training=False)
+            images_predictions, ys, matched_images = [],[],[]#self.predict_batch(d_x,class_type)
             generator_loss = self.generator.compute_loss(d_z, y_g, ys, images_predictions)
         
         gradients_of_generator = tape.gradient(generator_loss, self.generator.trainable_variables)
         self.generator.backPropagate(gradients_of_generator, self.generator.trainable_variables)
         return generator_loss,matched_images, self.generator(self.generator.seed, training=False)
 
+    #######################################
+    '''             Samples             '''
+    #######################################
     def generate_real_samples(self, n_samples):
         # choose random instances
         ix = np.random.randint(0, self.train_dataset.shape[0], n_samples)
@@ -145,6 +173,9 @@ class WGAN(tf.keras.Model):
         y = np.ones((n_samples, 1)).astype(np.float32)
         return X, y
 
+    #######################################
+    '''          Tensorboard            '''
+    #######################################
     def define_loss_tensorboard(self):
         """
         Tensorboard Integration - loss scallars
@@ -159,7 +190,7 @@ class WGAN(tf.keras.Model):
         logdir="logs/graph/" + datetime.now().strftime("%Y%m%d-%H%M%S")
         return tf.summary.create_file_writer(logdir=logdir)
     
-    def train_model(self,epoches,n_critic=5,class_type=0,directory = 'imgs',n_img_per_epoch = 4):
+    def train_model(self,epoches,b_size,n_critic=5,class_type=0,directory = 'imgs',n_img_per_epoch = 4):
         """
         Train model for an amount of epochs
 
@@ -185,6 +216,7 @@ class WGAN(tf.keras.Model):
             epoch = 0
         start_time = time.time()
         for i in range(n_steps):
+            self.update_fadein([self.generator,self.critic], i, n_steps)
             for _ in range(n_critic):
                 # get randomly selected 'real' samples
                 X_real, y_real = self.generate_real_samples(half_batch)
@@ -207,9 +239,13 @@ class WGAN(tf.keras.Model):
                 if((epoch % 1) == 0):
                     self.generator.save_weights('weights/g_weights/g_weights',save_format='tf')
                     self.critic.save_weights('weights/c_weights/c_weights',save_format='tf')
-                    data_access.write_current_epoch(filename='current_epoch',epoch)
+                    data_access.write_current_epoch(filename='current_epoch',epoch=epoch)
         print('Time elapse {}'.format(time.time() - start_time))
 
+    #######################################
+    '''          Generation             '''
+    #######################################
+    
     def generate_images(self,number_of_samples,directory):
         seed = tf.random.normal([number_of_samples, self.random_noise_size])
         images = self.generator(seed)
