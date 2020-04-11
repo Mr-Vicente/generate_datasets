@@ -59,12 +59,13 @@ class WGAN(tf.keras.Model):
     def update_fadein(self, models, step, n_steps):
         
         alpha = step / float(n_steps -1)
-        for mod in models:
-            for gen in mod.layers:
-                for layer in gen.layers:
-                    if isinstance(layer, WeightedSum):
-                        #print("AQUI")
-                        backend.set_value(layer.alpha,alpha)
+        for i in range(len(models)):
+            if i == 0: m = models[i].gens[models[i].n]
+            if i == 1: m = models[i].crit[len(models[i].crit)-models[i].n]
+            for layer in m.layers:
+                if isinstance(layer, WeightedSum):
+                    #print("AQUI")
+                    backend.set_value(layer.alpha,alpha)
                     
     def start_fadein(self,i):
          self.generator.start_fading(i)

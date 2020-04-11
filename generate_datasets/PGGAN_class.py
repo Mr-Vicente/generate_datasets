@@ -305,10 +305,10 @@ class Collection_Generator(tf.keras.Model):
     def update_current_n_layer(self):
         self.n += 1
     def start_fading(self,n):
-        self.gens[n-1].activate_fade_in()
+        self.gens[n].activate_fade_in()
         self.update_current_n_layer()
     def stop_fading(self,n):
-        self.gens[n-1].disactivate_fade_in()
+        self.gens[n].disactivate_fade_in()
     def call(self, input_tensor):
         x = input_tensor
         for i in range(self.n):
