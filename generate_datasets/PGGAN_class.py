@@ -9,7 +9,7 @@ Created on Tue Apr  7 14:03:58 2020
 """
 
 import tensorflow as tf
-from tensorflow.keras.layers import Dense,Reshape,Conv2D,Flatten,UpSampling2D,LeakyReLU,Cropping2D,AveragePooling2D,InputLayer,ZeroPadding2D
+from tensorflow.keras.layers import Dense,Reshape,Conv2D,Flatten,UpSampling2D,LeakyReLU,Cropping2D,AveragePooling2D,InputLayer,ZeroPadding2D,GlobalMaxPooling2D
 from tensorflow.keras.initializers import RandomNormal
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.losses import categorical_crossentropy
@@ -190,6 +190,7 @@ class Generator(tf.keras.Model):
 
     def add_upsampling(self):
         self.upsampling_2 = UpSampling2D()
+        
     def activate_fade_in(self):
         self.add_upsampling()
         
@@ -199,7 +200,7 @@ class Generator(tf.keras.Model):
     def disactivate_fade_in(self):
         self.remove_upsampling()
     
-    def call(self, input_tensor,fadein = False):
+    def call(self, input_tensor):
         ## Definition of Forward Pass
         x = self.input_layer(input_tensor)
         if self.model_type.value == ModelType.FIRST.value:
@@ -234,7 +235,7 @@ class Critic(tf.keras.Model):
         if m_type.value == ModelType.LAST.value:
             kernel_last = (4,4)
             self.mini_batch_stdv = MinibatchStdev()
-            self.flatten = Flatten()
+            self.flatten = GlobalMaxPooling2D()
             self.logit = Dense(1)
         else:
             self.weigth_sum = WeightedSum()
@@ -248,7 +249,7 @@ class Critic(tf.keras.Model):
         self.leaky_1 = LeakyReLU(alpha=0.2)
         self.conv_2 = Conv2D(128, (3,3), padding='same', kernel_initializer=self.init, kernel_constraint=self.const)
         self.leaky_2 = LeakyReLU(alpha=0.2)
-        self.conv_3 = Conv2D(128, kernel_last, padding='same', kernel_initializer=self.init, kernel_constraint=self.const)
+        self.conv_3 = Conv2D(3, kernel_last, padding='same', kernel_initializer=self.init, kernel_constraint=self.const)
         self.leaky_3 = LeakyReLU(alpha=0.2)    
         self.downsampling =None
     def add_downsampling(self):
@@ -301,7 +302,7 @@ class Collection_Generator(tf.keras.Model):
         super().__init__(name = "Coll_Generator")
         self.gens = generators
         self.optimizer = Adam(learning_rate=0.0001,beta_1=0,beta_2=0.9)
-        self.n = 1
+        self.n = 0
     def update_current_n_layer(self):
         self.n += 1
     def start_fading(self,n):
@@ -311,7 +312,7 @@ class Collection_Generator(tf.keras.Model):
         self.gens[n].disactivate_fade_in()
     def call(self, input_tensor):
         x = input_tensor
-        for i in range(self.n):
+        for i in range(self.n+1):
             x = self.gens[i](x)
         return x
     def set_seed(self):
@@ -343,17 +344,17 @@ class Collection_Critic(tf.keras.Model):
         super().__init__(name = "Coll_Critic")
         self.crit = critics
         self.optimizer = Adam(learning_rate=0.0001,beta_1=0,beta_2=0.9)
-        self.n = 1
+        self.n = 0
     def update_current_n_layer(self):
         self.n += 1
     def start_fading(self,n):
-        self.crit[len(self.crit)-n].activate_fade_in()
+        self.crit[len(self.crit)-1-n].activate_fade_in()
         self.update_current_n_layer()
     def stop_fading(self,n):
-        self.crit[len(self.crit)-n].disactivate_fade_in()
+        self.crit[len(self.crit)-1-n].disactivate_fade_in()
     def call(self, input_tensor):
         x = input_tensor
-        for i in range(len(self.crit)-self.n,len(self.crit)):
+        for i in range(len(self.crit)-1-self.n,len(self.crit)):
             x = self.crit[i](x)
         return x
     def compute_loss(self,y_true,y_pred):

@@ -61,7 +61,7 @@ class WGAN(tf.keras.Model):
         alpha = step / float(n_steps -1)
         for i in range(len(models)):
             if i == 0: m = models[i].gens[models[i].n]
-            if i == 1: m = models[i].crit[len(models[i].crit)-models[i].n]
+            if i == 1: m = models[i].crit[len(models[i].crit)-1-models[i].n]
             for layer in m.layers:
                 if isinstance(layer, WeightedSum):
                     #print("AQUI")
