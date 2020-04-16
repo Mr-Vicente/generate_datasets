@@ -148,6 +148,7 @@ class PGGAN(tf.keras.Model):
         self.wgan.load_dataset(scaled_images,2)
         self.wgan.train_model(epoches=epoches[0],b_size=0,n_critic=1,class_type=0,directory = 'imgs',n_img_per_epoch = 4)
         for i in range(1,5):
+            print(i)
             self.wgan.start_fadein(i)
             image_shape = (self.shape_size[i],self.shape_size[i],3)
             scaled_images = self.scale_dataset(self.train_dataset, new_shape=image_shape)
@@ -174,7 +175,7 @@ class Generator(tf.keras.Model):
         else:
             self.upsampling_1 = UpSampling2D()
             self.weigth_sum = WeightedSum()
-            
+        
         if m_type.value == ModelType.SPECIAL.value:
             self.crop_3 = Cropping2D(cropping=((1,0),(1,0)))
     
@@ -221,7 +222,7 @@ class Generator(tf.keras.Model):
         
 #######################################
 '''              Critic             '''
-#######################################    
+#######################################
 class Critic(tf.keras.Model):
     def __init__(self, m_type, shape):
         super().__init__(name = "Critic")
@@ -245,18 +246,18 @@ class Critic(tf.keras.Model):
             self.zero_pad = ZeroPadding2D(padding=((1,0),(1,0)))
         
         # define new block
-        self.conv_1 = Conv2D(128, (1,1), padding='same', kernel_initializer=self.init, kernel_constraint=self.const,input_shape=(None,None,3))
+        self.conv_1 = Conv2D(128, (1,1), padding='same', use_bias=False, kernel_initializer=self.init, kernel_constraint=self.const)
         self.leaky_1 = LeakyReLU(alpha=0.2)
-        self.conv_2 = Conv2D(128, (3,3), padding='same', kernel_initializer=self.init, kernel_constraint=self.const)
+        self.conv_2 = Conv2D(128, (3,3), padding='same', use_bias=False, kernel_initializer=self.init, kernel_constraint=self.const)
         self.leaky_2 = LeakyReLU(alpha=0.2)
-        self.conv_3 = Conv2D(3, kernel_last, padding='same', kernel_initializer=self.init, kernel_constraint=self.const)
+        self.conv_3 = Conv2D(3, kernel_last, padding='same', use_bias=False, kernel_initializer=self.init, kernel_constraint=self.const)
         self.leaky_3 = LeakyReLU(alpha=0.2)    
         self.downsampling =None
     def add_downsampling(self):
         self.downsampling = AveragePooling2D()
         
     def add_toRGB(self):
-        self.out = Conv2D(3, (3,3), padding='same', kernel_initializer=self.init, kernel_constraint=self.const)
+        self.out = Conv2D(3, (3,3), padding='same', use_bias=False, kernel_initializer=self.init, kernel_constraint=self.const)
         self.leakOut = LeakyReLU(alpha=0.2)  
         
     def activate_fade_in(self):
@@ -275,8 +276,8 @@ class Critic(tf.keras.Model):
     
     def call(self, input_tensor):
         ## Definition of Forward Pass
-        #x = self.input_layer(input_tensor)
-        x = self.leaky_1(self.conv_1(input_tensor))
+        x = self.input_layer(input_tensor)
+        x = self.leaky_1(self.conv_1(x))
         if self.model_type.value == ModelType.LAST.value:
             x = self.mini_batch_stdv(x)
         x = self.leaky_2(self.conv_2(x))
