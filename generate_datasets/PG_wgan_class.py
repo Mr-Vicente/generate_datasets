@@ -22,7 +22,7 @@ from datetime import datetime
 import os
 
 class WGAN(tf.keras.Model):
-    def __init__(self,gen=None,crit=None,latent_size=100, classifier_filename='TypeC_0.99_ConvExp19.hdf5'):
+    def __init__(self,gen=None,crit=None,latent_size=100, classifier_filename='classifiers/TypeC_0.99_ConvExp19.hdf5'):
         super().__init__(name = "WGAN")
         self.random_noise_size = latent_size
         self.generator = gen
