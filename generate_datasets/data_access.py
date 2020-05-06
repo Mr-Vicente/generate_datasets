@@ -23,6 +23,7 @@ import matplotlib.image as mpimg
 import cv2
 import imageio 
 import glob
+from skimage.transform import resize
 
 class_names = ['T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat',
                'Sandal', 'Shirt', 'Sneaker', 'Bag', 'Ankle boot']
@@ -56,12 +57,12 @@ def de_normalize(x):
 '''           Prepare Data          '''
 #######################################
 
-def load_data(data_type = '.png', data_dir='npz_imgs', resize_shape=(152,152)):
+def load_data(data_type = '.png', data_dir='npz_imgs', size_shape=(152,152)):
     """
     Load images from .png or .npz files into numpy vectors
     """
     if (data_type == '.png'):
-        return np.array([cv2.cvtColor(cv2.resize(cv2.imread(os.path.join(data_dir, img)),dsize=resize_shape),cv2.COLOR_BGR2RGB) for img in os.listdir(data_dir) if img.endswith(data_type)])
+        return np.array([cv2.cvtColor(cv2.resize(cv2.imread(os.path.join(data_dir, img)),dsize=size_shape),cv2.COLOR_BGR2RGB) for img in os.listdir(data_dir) if img.endswith(data_type)])
     elif (data_type == '.npz'):
         images = None
         max_npzs = 10
@@ -70,7 +71,11 @@ def load_data(data_type = '.png', data_dir='npz_imgs', resize_shape=(152,152)):
             if(img.endswith(data_type)):
                 currentSetOfImages = np.load(os.path.join(data_dir, img),'r')
                 print('Loaded npz',img)
-                imgs = np.reshape(currentSetOfImages['images'].astype(np.float32),newshape=(-1,152,152,3))
+                imgs = currentSetOfImages['images'].astype(np.float32)
+                if(imgs.shape[1] != size_shape[0]):
+                    print('Images resized - Old shape: {} --- New shape: {}'.format(imgs.shape[1:3],size_shape))
+                    imgs = np.array([resize(image,size_shape) for image in imgs])
+                imgs = np.reshape(imgs,newshape=(-1,size_shape[0],size_shape[1],3))
                 if images is None:
                     images = imgs
                 else:
@@ -80,9 +85,9 @@ def load_data(data_type = '.png', data_dir='npz_imgs', resize_shape=(152,152)):
                 break
         return images,images_counter
     
-def prepare_data(generator, batch_size = 1,data_dir='npz_imgs'):
+def prepare_data(generator, batch_size = 1,data_dir='npz_imgs',size_shape=(152,152)):
 
-    train_x,npzs = load_data(data_type = '.npz', data_dir=data_dir)
+    train_x,npzs = load_data(data_type = '.npz', data_dir=data_dir, size_shape=size_shape)
     print('Data loded: ',npzs,' npz files - ',npzs * 5000, ' images')
     
     if(generator == 'gan'):
@@ -90,10 +95,27 @@ def prepare_data(generator, batch_size = 1,data_dir='npz_imgs'):
 
     elif(generator == 'vae'):
         train_x = normalize(train_x)
-        buffer_size_train = train_x.shape[0]
-        train_x = tf.data.Dataset.from_tensor_slices(train_x).shuffle(buffer_size_train).batch(batch_size,drop_remainder=True)
+        #buffer_size_train = train_x.shape[0]
+        #train_x = tf.data.Dataset.from_tensor_slices(train_x).shuffle(buffer_size_train).batch(batch_size,drop_remainder=True)
 
     return train_x,None, None, None
+
+def prepare_dataset(generator, dataset, image_size=(152,152)):
+    """
+    :generator: generator model working with - <gan> or <vae>
+    :dataset: numpy array with image data
+    :image_size: size of output images
+    """
+    if(dataset.shape[1] != image_size[0]):
+        print('Images resized - Old shape: {} --- New shape: {}'.format(dataset.shape[1:3],image_size))
+        train_x = np.array([resize(dataset,image_size) for image in dataset])
+    
+    if(generator == 'gan'):
+        train_x = standardize(train_x)
+    elif(generator == 'vae'):
+        train_x = normalize(train_x)
+        
+    return train_x,None,None,None
 
 #######################################
 '''      Store and load Files       '''
@@ -104,8 +126,6 @@ def store_weights_in_file(filename,weights_):
 
 def load_weights_from_file(filename):
     weights = np.load('{}.npz'.format(filename),allow_pickle=True)['weights']
-    print(weights.shape)
-    weights = weights.tolist()
     return weights
 
 def store_seed_in_file(filename,seed_):
@@ -154,7 +174,7 @@ def prepare_img(img,type_de = 'gan'):
     if (type_de == 'gan'):
         img = de_standardize_norm(img)
     else:
-        print(img)
+        pass
     return img
 
 def store_image_simple(directory,image_name,image,prediction):
@@ -312,4 +332,9 @@ def print_training_output(step, n_steps, critic_loss, gen_loss):
     print('{}th OUT OF {} steps'.format(step,n_steps))
     print('Critic Loss: {}'.format(critic_loss))
     print('Generator Loss: {}'.format(gen_loss))
+    
+def print_training_output_vae(step,steps,inf_loss,gen_loss):
+     print('Step {} of {}'.format(step,steps))
+     print('Inference Loss: {} ------ Generator Loss: {}'.format(inf_loss,gen_loss))
+     print('-------------------------------------------------')
         
