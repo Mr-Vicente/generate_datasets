@@ -322,7 +322,23 @@ def stats(predictions):
             counter += 1
     print('From {} images, {} belong to class C ({}%)'.format(n_images,counter,(counter/n_images) * 100))
             
-                       
+def train_percentage(data_dir='npz_imgs',size_shape=(152,152),threshold = 65):
+    train_x,npzs = load_data(data_type = '.npz', data_dir=data_dir, size_shape=size_shape)
+    print('Data loded: ',npzs,' npz files - ',npzs * 5000, ' images')
+    total_pixels = size_shape[0] * size_shape[1]
+    percentages = list()
+    for image in train_x:
+        train_pixel = 0
+        for x in range(size_shape[0]):
+            for y in range(size_shape[1]):
+                pixel = image[x,y]
+                if(pixel[0] < threshold and pixel[1] < threshold and pixel[2] < threshold ):
+                    train_pixel += 1
+        percentage = (train_pixel / total_pixels) * 100
+        percentages.append(percentage)
+    avg_percentage = np.average(np.asarray(percentage))
+    print('Avg amount of train pixels -> {} / {}'.format(avg_percentage,total_pixels))
+    
 #######################################
 '''             Prints              '''
 #######################################
