@@ -53,7 +53,7 @@ def create_lsun(lmdb_dir, resolution=256, max_images=None,n_images_per_partition
             if (counter != 0) and ((counter % n_images_per_partition) == 0):
                 images = np.asarray(images)
                 print('Images shape: {}'.format(images.shape))
-                filename = 'lsun_bedroom_{}.npz'.format(int(counter/5000))
+                filename = 'lsun_bedroom_{}x{}_{}.npz'.format(resolution,resolution,int(counter/5000))
                 np.savez(filename,images=images)
                 print('Saved 5000 images in npz format -- with filename: {}'.format(n_images_per_partition,filename))
                 images = list()
