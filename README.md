@@ -28,17 +28,36 @@ gan.train_model(EPOCHS)
 gan.generate_images(10,"imgs")
 ```
 
-
-## Library User
-
-:Dataset:
-:Iterations:
-
 ## Library Info
 
-PGGAN \
-WGAN \
-IntroVae \
+This library has several generative models at your despose:
+
+* GAN (Generative Adversarial Network)
+    * Status: Working
+    * Paper: [GAN](https://arxiv.org/abs/1406.2661)
+    * Official Implementation: 
+* VAE (Variational Autoencoder)
+    * Status: Working
+    * Paper: [VAE](https://arxiv.org/abs/1312.6114)
+    * Official Implementation: 
+* WGAN (Wasserstein GAN)
+    * Status: Working
+    * Paper: [WGAN](https://arxiv.org/abs/1701.07875)
+    * Official Implementation: 
+* WGAN-GP (Wasserstein GAN with Gradient Penalty)
+    * Status: Working
+    * Paper: [WGAN-GP](https://arxiv.org/abs/1704.00028)
+    * Official Implementation: 
+* PGGAN (Progressive Growing GAN)
+    * Status: Not working
+    * Paper: [PGGAN](https://arxiv.org/abs/1710.10196)
+    * Official Implementation: 
+* IntroVAE ()
+    * Status: Not giving proper results
+    * Paper: [IntroVAE](https://arxiv.org/abs/1807.06358)
+    * Official Implementation: None
+
+To learn more about these Generative models visit the referenced papers/implementations.
 
 
 ## Examples - Generated Images
