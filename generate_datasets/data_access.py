@@ -23,6 +23,7 @@ import matplotlib.image as mpimg
 import cv2
 import imageio 
 import glob
+import pickle
 from skimage.transform import resize
 
 class_names = ['T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat',
@@ -46,7 +47,7 @@ def de_standardize_norm(x):
     return np.interp(x,[-1,1],[0,1])
 
 def normalize(x):
-    x /= 255.
+    x /= 255. # /= operator does not create temporary tensor
     return x
 
 def de_normalize(x):
@@ -99,6 +100,21 @@ def prepare_data(generator, batch_size = 1,data_dir='npz_imgs',size_shape=(152,1
         #train_x = tf.data.Dataset.from_tensor_slices(train_x).shuffle(buffer_size_train).batch(batch_size,drop_remainder=True)
 
     return train_x,None, None, None
+
+def prepare_data_FMNIST(generator = 'gan'):
+    fashion_mnist = tf.keras.datasets.fashion_mnist
+    (train_x, train_y),(test_x,test_y) = fashion_mnist.load_data()
+    
+    if(generator == 'gan'):
+        train_x = standardize(train_x)
+        test_x = standardize(test_x)
+
+    elif(generator == 'vae'):
+        train_x = normalize(train_x)
+        test_x = normalize(test_x)
+        
+    return train_x
+    
 
 def prepare_dataset(generator, dataset, image_size=(152,152)):
     """
@@ -174,7 +190,7 @@ def prepare_img(img,type_de = 'gan'):
     if (type_de == 'gan'):
         img = de_standardize_norm(img)
     else:
-        pass
+        img = de_standardize_norm(img) #pass
     return img
 
 def store_image_simple(directory,image_name,image,prediction):
@@ -232,6 +248,15 @@ def write_current_epoch(filename,epoch):
     with open('{}.txt'.format(filename),'w') as ofil:
         ofil.write(f'{epoch}')
     print('Saved epoch ',epoch)
+    
+def write_current_phase(filename,phase):
+    with open('{}.pickle'.format(filename),'wb') as handle:
+        pickle.dump(phase,handle, protocol=pickle.HIGHEST_PROTOCOL)
+    print('Saved training phase ')
+
+def read_current_phase(filename):
+    with open('{}.pickle'.format(filename),'rb') as handle:
+        return pickle.load(handle)
         
 def prepare_directory(directory = "imgs"):
     if not os.path.exists(directory):
@@ -353,4 +378,9 @@ def print_training_output_vae(step,steps,inf_loss,gen_loss):
      print('Step {} of {}'.format(step,steps))
      print('Inference Loss: {} ------ Generator Loss: {}'.format(inf_loss,gen_loss))
      print('-------------------------------------------------')
-        
+     
+def print_training_time(start_time,end_time,params):
+    total_minutes = (end_time-start_time) / 60
+    hours = (int)(total_minutes // 60)
+    minutes = (int)(((total_minutes / 60) % 1) * 60)
+    print('Training model took: {}h and {}m with \n params: {}'.format(hours,minutes,{h: params[h] for h in params}))
