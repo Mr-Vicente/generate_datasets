@@ -1,5 +1,6 @@
 
 <img src="images/library_logo.png" alt="Synthetic Data Gen Logo" title="Logo" align="left" height="60"/>
+
 # Synthetic Data Generation
 
 User friendly library to generate datasets using GANs and VAEs.
