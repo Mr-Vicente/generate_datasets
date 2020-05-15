@@ -1,5 +1,5 @@
 
-<img src="images/library_logo.png" alt="Synthetic Data Gen Logo" title="Logo" align="left" height="60"/>
+<img src="images/library_logo.png" alt="Synthetic Data Gen Logo" title="Logo" align="left" height="40"/>
 
 # Synthetic Data Generation
 
@@ -45,24 +45,24 @@ This library has several generative models at your despose:
 * GAN (Generative Adversarial Network)
     * Status: Working
     * Paper: [GAN](https://arxiv.org/abs/1406.2661)
-    * Official Implementation: 
+    * Official Implementation: None
 * VAE (Variational Autoencoder)
     * Status: Working
     * Paper: [VAE](https://arxiv.org/abs/1312.6114)
-    * Official Implementation: 
+    * Official Implementation: None
 * WGAN (Wasserstein GAN)
     * Status: Working
     * Paper: [WGAN](https://arxiv.org/abs/1701.07875)
-    * Official Implementation: 
+    * Official Implementation: None
 * WGAN-GP (Wasserstein GAN with Gradient Penalty)
     * Status: Working
     * Paper: [WGAN-GP](https://arxiv.org/abs/1704.00028)
-    * Official Implementation: 
+    * Official Implementation: None, but check this one [WGAN-GP Implementation](https://github.com/igul222/improved_wgan_training)
 * PGGAN (Progressive Growing GAN)
     * Status: Not working
     * Paper: [PGGAN](https://arxiv.org/abs/1710.10196)
-    * Official Implementation: 
-* IntroVAE Introspective Variational Autoencoder
+    * Official Implementation: [PGGAN Implementation](https://github.com/tkarras/progressive_growing_of_gans)
+* IntroVAE (Introspective Variational Autoencoder)
     * Status: Not giving proper results
     * Paper: [IntroVAE](https://arxiv.org/abs/1807.06358)
     * Official Implementation: None
