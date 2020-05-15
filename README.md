@@ -1,3 +1,5 @@
+![Synthetic Data Gen Logo](images/library_logo.png)
+[![Downloads](0)](0)
 # Synthetic Data Generation
 
 User friendly library to generate datasets using GANs and VAEs.
