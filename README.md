@@ -1,5 +1,5 @@
-![Synthetic Data Gen Logo](images/library_logo.png)
-<img src="images/library_logo.png" alt="Synthetic Data Gen Logo" title="Logo" align="right" height="60"/>
+
+<img src="images/library_logo.png" alt="Synthetic Data Gen Logo" title="Logo" align="left" height="60"/>
 # Synthetic Data Generation
 
 User friendly library to generate datasets using GANs and VAEs.
