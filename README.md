@@ -1,5 +1,5 @@
 
-<img src="images/library_logo.png" alt="Synthetic Data Gen Logo" title="Logo" align="left" height="40"/>
+<img src="images/Synth_logo.png" alt="Synthetic Data Gen Logo" title="Logo" align="left" height="30"/>
 
 # Synthetic Data Generation
 
