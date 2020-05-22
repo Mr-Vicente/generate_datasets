@@ -23,7 +23,6 @@ import matplotlib.image as mpimg
 import cv2
 import imageio 
 import glob
-import pickle
 from skimage.transform import resize
 
 class_names = ['T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat',
@@ -106,14 +105,14 @@ def prepare_data_FMNIST(generator = 'gan'):
     (train_x, train_y),(test_x,test_y) = fashion_mnist.load_data()
     
     if(generator == 'gan'):
-        train_x = standardize(train_x)
-        test_x = standardize(test_x)
+        train_x = np.reshape(((train_x - 127.5) / 127.5).astype(np.float32),newshape=(-1,28,28,1))
+        test_x = np.reshape(((test_x - 127.5) / 127.5).astype(np.float32),newshape=(-1,28,28,1))
 
     elif(generator == 'vae'):
         train_x = normalize(train_x)
         test_x = normalize(test_x)
         
-    return train_x
+    return train_x,train_y,test_x,test_y
     
 
 def prepare_dataset(generator, dataset, image_size=(152,152)):
@@ -205,8 +204,10 @@ def store_image(directory,epoch,image,i,type_de):
     plt.axis('off')
     plt.xlabel(epoch)
     image = prepare_img(image,type_de)
-
-    plt.imsave('{}/epoch_{}/id_{}.png'.format(directory,epoch,i),image)
+    if(image.shape[-1] != 1):
+        plt.imsave('{}/epoch_{}/id_{}.png'.format(directory,epoch,i),image)
+    else:
+        plt.imsave('{}/epoch_{}/id_{}.png'.format(directory,epoch,i),image[:,:,0],cmap="gray")
 
 def store_images_seed(directory,images,epoch,type_de='gan'):
     for i in range(len(images)):
@@ -222,7 +223,7 @@ def tf_store_image(image,epoch,i):
     tf.io.write_file(dirt,img)
 
 def store_images(images,epoch):
-    fig = plt.figure(figsize=(2,2))
+    plt.figure(figsize=(2,2))
     for i in range(images.shape[0]):
         plt.subplot(2, 2, i+1)
         image = prepare_img(images[i])
@@ -249,14 +250,24 @@ def write_current_epoch(filename,epoch):
         ofil.write(f'{epoch}')
     print('Saved epoch ',epoch)
     
-def write_current_phase(filename,phase):
-    with open('{}.pickle'.format(filename),'wb') as handle:
-        pickle.dump(phase,handle, protocol=pickle.HIGHEST_PROTOCOL)
+def write_current_phase_number(filename,index):
+    with open('{}.txt'.format(filename),'w') as ofil:
+        ofil.write(f'{index}')
+    print('Saved phase number ',index)
+    
+def write_combinations(filename,phase):
+    with open('{}.txt'.format(filename),'w') as f:
+        print(phase, file=f)
     print('Saved training phase ')
 
-def read_current_phase(filename):
-    with open('{}.pickle'.format(filename),'rb') as handle:
-        return pickle.load(handle)
+def read_combinations(filename):
+    with open('{}.txt'.format(filename),'r') as f:
+        content = f.read()
+        return eval(content)
+
+def read_phase_number(filename):
+    with open('{}.txt'.format(filename),'r') as f:
+        return int(f.read())
         
 def prepare_directory(directory = "imgs"):
     if not os.path.exists(directory):
@@ -266,21 +277,24 @@ def prepare_directory(directory = "imgs"):
 '''         Visualizations          '''
 #######################################
 
-def plot_image(i, predictions_array, images):
+def plot_image(i, predictions_array, images,classes=class_names):
     img = prepare_img(images[i])
     plt.grid(False)
     plt.xticks([])
     plt.yticks([])
 
-    plt.imshow(img)
+    if(img.shape[-1] != 1):
+        plt.imshow(img)
+    else:
+        plt.imshow(img[:,:,0],cmap="gray")
 
     predicted_label = np.argmax(predictions_array)
 
-    plt.xlabel("{} {:2.0f}%".format(class_names[predicted_label],
+    plt.xlabel("{} {:2.0f}%".format(classes[predicted_label],
                                 100*np.max(predictions_array)),
                                 color='red')
 
-def produce_generate_figure(directory,gen_images,predictions):
+def produce_generate_figure(directory,gen_images,predictions,num_classes=2,classes=class_names):
     prepare_directory(directory)
     num_images = gen_images.shape[0]
     num_cols = 2
@@ -289,21 +303,25 @@ def produce_generate_figure(directory,gen_images,predictions):
     basis = tf.convert_to_tensor([0,1],dtype=tf.float32)
     for i in range(num_images):
         plt.subplot(num_rows, 2*num_cols, 2*i+1)
-        p = tf.subtract(predictions[i],basis)
-        p = tf.abs(p)
-        p = tf.reshape(p,shape=(2,))
-        plot_image(i, p, gen_images)
+        if(num_classes == 2):
+            x = tf.subtract(predictions[i],basis)
+            w_list = tf.abs(x)
+        else:
+            w_list = predictions[i]
+        #print('w_list shape: ', w_list.shape)
+        w_list = tf.reshape(w_list,(w_list.shape[0],))
+        plot_image(i, w_list, gen_images)
         plt.subplot(num_rows, 2*num_cols, 2*i+2)
-        plot_value_array(i, p)
-        _ = plt.xticks(range(len(class_names)),class_names,rotation=80)
+        plot_value_array(i, w_list)
+        _ = plt.xticks(range(len(classes)),classes,rotation=80)
     plt.tight_layout()
     plt.savefig('{}/classifications.png'.format(directory))
 
-def plot_value_array(i, predictions_array):
+def plot_value_array(i, predictions_array,classes = class_names):
     plt.grid(False)
-    plt.xticks(range(len(class_names)))
+    plt.xticks(range(len(classes)))
     plt.yticks([])
-    thisplot = plt.bar(range(len(class_names)), predictions_array, color="#777777")
+    thisplot = plt.bar(range(len(classes)), predictions_array, color="#777777")
     plt.ylim([0, 1])
     predicted_label = np.argmax(predictions_array)
 
