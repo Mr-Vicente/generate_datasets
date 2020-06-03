@@ -30,6 +30,10 @@ class_names = ['T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat',
 
 class_names = ['TypeC','TypeO']
 
+#class_names = ["loiro-claro","amarelo","laranja","laranja-castanho","loiro","castanho-claro","castanho","preto","cinzento","branco"]
+class_names = ['Blond-yellow','Yellow','Orange','Orange-Brown','Blond','Light-Brown','Brown','Black','Gray','White']
+
+class_names = ['1 waggon', '2 waggons', '3 waggons', '4 waggons']
 #######################################
 '''           Operations            '''
 #######################################
@@ -67,6 +71,7 @@ def load_data(data_type = '.png', data_dir='npz_imgs', size_shape=(152,152)):
         images = None
         max_npzs = 10
         images_counter = 0
+        images_number = 0
         for img in os.listdir(data_dir):
             if(img.endswith(data_type)):
                 currentSetOfImages = np.load(os.path.join(data_dir, img),'r')
@@ -76,6 +81,7 @@ def load_data(data_type = '.png', data_dir='npz_imgs', size_shape=(152,152)):
                     print('Images resized - Old shape: {} --- New shape: {}'.format(imgs.shape[1:3],size_shape))
                     imgs = np.array([resize(image,size_shape) for image in imgs])
                 imgs = np.reshape(imgs,newshape=(-1,size_shape[0],size_shape[1],3))
+                images_number += imgs.shape[0]
                 if images is None:
                     images = imgs
                 else:
@@ -83,21 +89,19 @@ def load_data(data_type = '.png', data_dir='npz_imgs', size_shape=(152,152)):
                 images_counter += 1
             if(images_counter == max_npzs):
                 break
-        return images,images_counter
+        return images, images_number
     
 def prepare_data(generator, batch_size = 1,data_dir='npz_imgs',size_shape=(152,152)):
 
-    train_x,npzs = load_data(data_type = '.npz', data_dir=data_dir, size_shape=size_shape)
-    print('Data loded: ',npzs,' npz files - ',npzs * 5000, ' images')
+    train_x,n_images = load_data(data_type = '.npz', data_dir=data_dir, size_shape=size_shape)
+    print('Data loded: ',n_images, ' images')
     
     if(generator == 'gan'):
         train_x = standardize(train_x)
 
     elif(generator == 'vae'):
         train_x = normalize(train_x)
-        #buffer_size_train = train_x.shape[0]
-        #train_x = tf.data.Dataset.from_tensor_slices(train_x).shuffle(buffer_size_train).batch(batch_size,drop_remainder=True)
-
+        
     return train_x,None, None, None
 
 def prepare_data_FMNIST(generator = 'gan'):
@@ -109,8 +113,13 @@ def prepare_data_FMNIST(generator = 'gan'):
         test_x = np.reshape(((test_x - 127.5) / 127.5).astype(np.float32),newshape=(-1,28,28,1))
 
     elif(generator == 'vae'):
-        train_x = normalize(train_x)
-        test_x = normalize(test_x)
+        train_x = np.reshape((train_x / 255.).astype(np.float32),newshape=(-1,28,28,1))
+        test_x = np.reshape((test_x / 255.).astype(np.float32),newshape=(-1,28,28,1))
+        
+        train_x[train_x >= .5] = 1.
+        train_x[train_x < .5] = 0.
+        test_x[test_x >= .5] = 1.
+        test_x[test_x < .5] = 0.
         
     return train_x,train_y,test_x,test_y
     
@@ -294,7 +303,8 @@ def plot_image(i, predictions_array, images,classes=class_names):
                                 100*np.max(predictions_array)),
                                 color='red')
 
-def produce_generate_figure(directory,gen_images,predictions,num_classes=2,classes=class_names):
+def produce_generate_figure(directory,gen_images,predictions,classes=class_names):
+    num_classes = len(classes)
     prepare_directory(directory)
     num_images = gen_images.shape[0]
     num_cols = 2
@@ -397,8 +407,17 @@ def print_training_output_vae(step,steps,inf_loss,gen_loss):
      print('Inference Loss: {} ------ Generator Loss: {}'.format(inf_loss,gen_loss))
      print('-------------------------------------------------')
      
+def print_training_output_simple_loss(step,steps,loss):
+     print('Step {} of {}'.format(step,steps))
+     print('Model loss: {}'.format(loss))
+     print('-------------------------------------------------')
+     
+     
 def print_training_time(start_time,end_time,params):
     total_minutes = (end_time-start_time) / 60
     hours = (int)(total_minutes // 60)
     minutes = (int)(((total_minutes / 60) % 1) * 60)
-    print('Training model took: {}h and {}m with \n params: {}'.format(hours,minutes,{h: params[h] for h in params}))
+    if(params is not None):
+        print('Training model took: {}h and {}m with \n params: {}'.format(hours,minutes,{h: params[h] for h in params}))
+    else:
+        print('Training model took: {}h and {}m'.format(hours,minutes))
