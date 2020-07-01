@@ -1,7 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Wed Feb 12 08:45:21 2020
-"""
 
 """
     Playground - play with the models    
@@ -11,18 +8,17 @@ Created on Wed Feb 12 08:45:21 2020
 """
 import argparse
 import data_access
-from IntroVae import IntroVae
+from IntroVae.IntroVae import IntroVae
 
 
 def main(args):
     
     vae = IntroVae()
-    vae.load_dataset(data_access.prepare_data('vae'))
+    vae.load_dataset(data_access.prepare_data('gan')) # it's gan, not a mistake
     
     vae.train_model()
     n_images = 10
     vae.generate_images(n_images,"imgs")
-
 
 
 if __name__ == '__main__':
