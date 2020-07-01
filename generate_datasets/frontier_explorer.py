@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-Created on Wed May 13 18:09:20 2020
-
-@author: MrVicente
+    Frederico Vicente, NOVA FCT, MIEI
+    Ludwig Krippahl
 """
 
 import argparse
 import tensorflow as tf
 
-from IntroVae import IntroVae
+from IntroVae.IntroVae import IntroVae
 
 import scipy.optimize as optimize
 
