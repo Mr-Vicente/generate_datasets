@@ -1,7 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Wed Feb 12 08:37:38 2020
-"""
 
 """
     Data_Access
@@ -25,15 +22,6 @@ import imageio
 import glob
 from skimage.transform import resize
 
-class_names = ['T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat',
-               'Sandal', 'Shirt', 'Sneaker', 'Bag', 'Ankle boot']
-
-class_names = ['TypeC','TypeO']
-
-#class_names = ["loiro-claro","amarelo","laranja","laranja-castanho","loiro","castanho-claro","castanho","preto","cinzento","branco"]
-class_names = ['Blond-yellow','Yellow','Orange','Orange-Brown','Blond','Light-Brown','Brown','Black','Gray','White']
-
-class_names = ['1 waggon', '2 waggons', '3 waggons', '4 waggons']
 #######################################
 '''           Operations            '''
 #######################################
@@ -64,6 +52,10 @@ def de_normalize(x):
 def load_data(data_type = '.png', data_dir='npz_imgs', size_shape=(152,152)):
     """
     Load images from .png or .npz files into numpy vectors
+    
+    :data_type: .png files or .npz files
+    :data_dir: directory/folder where the files are
+    :size_shape: images final shape after loading (for resize purposes)
     """
     if (data_type == '.png'):
         return np.array([cv2.cvtColor(cv2.resize(cv2.imread(os.path.join(data_dir, img)),dsize=size_shape),cv2.COLOR_BGR2RGB) for img in os.listdir(data_dir) if img.endswith(data_type)])
@@ -91,8 +83,16 @@ def load_data(data_type = '.png', data_dir='npz_imgs', size_shape=(152,152)):
                 break
         return images, images_number
     
-def prepare_data(generator, batch_size = 1,data_dir='npz_imgs',size_shape=(152,152)):
-
+def prepare_data(generator,data_dir='npz_imgs',labels_dir='npz_labels',size_shape=(152,152)):
+    """
+    Loads dataset info into numpy vectors and transforms the images data
+    to the interval [-1,1] for GAN or [0,1] for VAE
+    
+    :generator: Generative model being used ('gan' or 'vae')
+    :data_type: .png files or .npz files
+    :data_dir: directory/folder where the files are
+    :size_shape: images final shape after loading (for resize purposes)
+    """
     train_x,n_images = load_data(data_type = '.npz', data_dir=data_dir, size_shape=size_shape)
     print('Data loded: ',n_images, ' images')
     
@@ -102,44 +102,94 @@ def prepare_data(generator, batch_size = 1,data_dir='npz_imgs',size_shape=(152,1
     elif(generator == 'vae'):
         train_x = normalize(train_x)
         
-    return train_x,None, None, None
+    if labels_dir is not None:
+        for label in os.listdir(labels_dir):
+            currentSetOflabels = np.load(os.path.join(labels_dir, label),'r')
+            labels = currentSetOflabels['labels'].astype(np.float32)
+    
+    return train_x, labels, None, None
 
-def prepare_data_FMNIST(generator = 'gan'):
-    fashion_mnist = tf.keras.datasets.fashion_mnist
-    (train_x, train_y),(test_x,test_y) = fashion_mnist.load_data()
+def prepare_data_KERAS(generator = 'gan', dataset_name='FMNIST'):
+    """
+    Simple abstraction to easily load the standard datasets keras has builtin
+    (Fashion MNIST: 'FMNIST' | MNIST: 'MNIST' | Cifar: 'cifar')
+    After loading, preprocessing is done to prepare for generative models
+    
+    :generator: Generative model being used ('gan' or 'vae')
+    :dataset_name: dataset to load (Fashion MNIST: 'FMNIST' | MNIST: 'MNIST' | Cifar: 'cifar')
+    """
+    
+    if(dataset_name == 'FMNIST'):
+        dataset = tf.keras.datasets.fashion_mnist
+    elif(dataset_name == 'MNIST'):
+        dataset = tf.keras.datasets.mnist
+    elif(dataset_name == 'cifar'):
+        dataset = tf.keras.datasets.cifar10
+    else:
+        print('Not supported :(')
+        return None
+        
+    (train_x, train_y),(test_x,test_y) = dataset.load_data()
+    shape_X = train_x.shape[1]
+    shape_Y = train_x.shape[2]
+    if(len(train_x.shape)==3):
+        channels = 1
+    else:
+        channels = train_x.shape[3]
+    
     
     if(generator == 'gan'):
-        train_x = np.reshape(((train_x - 127.5) / 127.5).astype(np.float32),newshape=(-1,28,28,1))
-        test_x = np.reshape(((test_x - 127.5) / 127.5).astype(np.float32),newshape=(-1,28,28,1))
+        train_x = np.reshape(((train_x - 127.5) / 127.5).astype(np.float32),newshape=(-1,shape_X,shape_Y,channels))
+        test_x = np.reshape(((test_x - 127.5) / 127.5).astype(np.float32),newshape=(-1,shape_X,shape_Y,channels))
 
     elif(generator == 'vae'):
-        train_x = np.reshape((train_x / 255.).astype(np.float32),newshape=(-1,28,28,1))
-        test_x = np.reshape((test_x / 255.).astype(np.float32),newshape=(-1,28,28,1))
+        train_x = np.reshape((train_x / 255.).astype(np.float32),newshape=(-1,shape_X,shape_Y,channels))
+        test_x = np.reshape((test_x / 255.).astype(np.float32),newshape=(-1,shape_X,shape_Y,channels))
         
-        train_x[train_x >= .5] = 1.
-        train_x[train_x < .5] = 0.
-        test_x[test_x >= .5] = 1.
-        test_x[test_x < .5] = 0.
+        if(channels == 1):
+            train_x[train_x >= .5] = 1.
+            train_x[train_x < .5] = 0.
+            test_x[test_x >= .5] = 1.
+            test_x[test_x < .5] = 0.
         
     return train_x,train_y,test_x,test_y
     
 
 def prepare_dataset(generator, dataset, image_size=(152,152)):
     """
-    :generator: generator model working with - <gan> or <vae>
+    Useful when dataset is already loaded but resize is needed or simply
+    processing is needed to feed the dataset to generative models
+    
+    :generator: generator model working with - 'gan' or 'vae'
     :dataset: numpy array with image data
     :image_size: size of output images
     """
-    if(dataset.shape[1] != image_size[0]):
-        print('Images resized - Old shape: {} --- New shape: {}'.format(dataset.shape[1:3],image_size))
-        train_x = np.array([resize(dataset,image_size) for image in dataset])
+    train_x, train_y = dataset
+    
+    if(train_x.shape[1] != image_size[0]):
+        print('Images resized - Old shape: {} --- New shape: {}'.format(train_x.shape[1:3],image_size))
+        train_x = np.array([resize(image,image_size) for image in train_x])
     
     if(generator == 'gan'):
         train_x = standardize(train_x)
     elif(generator == 'vae'):
         train_x = normalize(train_x)
         
-    return train_x,None,None,None
+    return train_x,train_y,None,None
+
+def prepare_img(img,type_de = 'gan'):
+    """
+    Transform tensor into storable image
+    
+    :img: image tensor
+    :type_de: generative model being used
+    """
+    img = img.numpy()
+    if (type_de == 'gan'):
+        img = de_standardize_norm(img)
+    else:
+        img = de_standardize_norm(img) 
+    return img
 
 #######################################
 '''      Store and load Files       '''
@@ -174,38 +224,85 @@ def load_batch_norm(data_dir):
         ws.append(w)
     return ws
 
+def write_current_epoch(filename,epoch):
+    with open('{}.txt'.format(filename),'w') as ofil:
+        ofil.write(f'{epoch}')
+    print('Saved epoch ',epoch)
+    
+def write_current_phase_number(filename,index):
+    with open('{}.txt'.format(filename),'w') as ofil:
+        ofil.write(f'{index}')
+    print('Saved phase number ',index)
+    
+def write_combinations(filename,phase):
+    with open('{}.txt'.format(filename),'w') as f:
+        print(phase, file=f)
+    print('Saved training phase ')
+
+def read_combinations(filename):
+    with open('{}.txt'.format(filename),'r') as f:
+        content = f.read()
+        return eval(content)
+
+def read_phase_number(filename):
+    with open('{}.txt'.format(filename),'r') as f:
+        return int(f.read())
+        
+def prepare_directory(directory = "imgs"):
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
 #######################################
-'''      Store and load Images      '''
+'''      Get CSV dataset info       '''
 #######################################
 
-def get_images_of_certain_class(csv_filename,data_dir,class_type):
-    images,npzs = load_data(data_type = '.npz', data_dir=data_dir)
-    images_size = 5000 * npzs
-    images = tf.convert_to_tensor(images,dtype=tf.float32)
-    images = tf.reshape(images,shape=(images_size,152,152,3))
+def get_images_of_certain_class(csv_filename,data_dir,class_type,filter_value=1,data_type='.npz'):
+    """
+    Might be useful to studdy a dataset
+    Gets the images that are from a certain category
+    
+    :csv_filename: csv file with information of dataset
+    :data_dir: folder where images are (suppoted types of files: npz, png)
+    :class_type: category of class
+    :filter_value: extract images with a class that has this value
+    :data_type: data file type (suppoted types of files: npz, png)
+    """
+    images,images_number = load_data(data_type = data_type, data_dir=data_dir)
     df = pd.read_csv(csv_filename,sep=',')
-    #class_type = TypeA (for example)
-    df = df.head(images_size)
-    class_images = df.loc[df[class_type] == 1]
-    ix = class_images['name']
-    print(ix)
-    images = tf.gather(images,ix) #images[ix]
+    df = df.head(images_number)
+    class_images = df.loc[df[class_type] == filter_value]
+    ix = class_images[0]
+    images = images[ix]
     store_images_seed("images",images,"none")
+    
+def get_labels_of_certain_class(csv_filename,class_type,class_max=4,limits=(0,5000)):
+    """
+    Might be useful to studdy a dataset
+    Gets the labels from a certain class between a range
+    
+    :csv_filename: csv file with information of dataset
+    :class_type: category of class
+    :filter_value: extract images with a class that has this value
+    :data_type: data file type (suppoted types of files: npz, png)
+    """
+    #csv_filename = r"C:\Users\MrVicente\Desktop\trains.csv"
+    df = pd.read_csv(csv_filename,sep=',')
+    df = df[limits[0]:limits[1]]
+    class_labels = df[class_type]
+    labels = list()
+    for class_value in class_labels:
+        one_hot = np.zeros(class_max)
+        one_hot[class_value-1] = 1
+        labels.append(one_hot)
+    np.savez('{}_{}.npz'.format('labels',class_type),labels=labels)
 
-
-def prepare_img(img,type_de = 'gan'):
-    img = img.numpy()
-    if (type_de == 'gan'):
-        img = de_standardize_norm(img)
-    else:
-        img = de_standardize_norm(img) #pass
-    return img
+#######################################
+'''          Store images           '''
+#######################################
 
 def store_image_simple(directory,image_name,image,prediction):
-
     plt.axis('off')
     plt.imsave('{}/{}.png'.format(directory,image_name),image)
-    
     
 def store_image(directory,epoch,image,i,type_de):
     prepare_directory(directory)
@@ -241,52 +338,42 @@ def store_images(images,epoch):
 
     plt.savefig('image_at_epoch_{:04d}.png'.format(epoch))
 
-def create_collection(epoches,n_dif_images,directory):
+def create_collection(epochs,n_gen_images,directory):
+    """
+    Creates a png image with the evolution of each seed image thoughout the training process
+    
+    :epochs: number of epochs the model trained
+    :n_gen_images: number of images generated per epoch
+    :directory: folder to store png image
+    """
     fig = plt.figure(figsize=(20,200))
     k=0
-    for epoch in range(epoches):
-        for im in range(n_dif_images):
+    for epoch in range(epochs):
+        for im in range(n_gen_images):
             k+=1
             img = mpimg.imread('{}/epoch_{}/id_{}.png'.format(directory,epoch,im))
-            fig.add_subplot(epoches, n_dif_images, k)
+            fig.add_subplot(epochs, n_gen_images, k)
             plt.imshow(img, cmap='gray')
             plt.axis('off')
     plt.tight_layout()
     plt.savefig('training.png')
     
-def write_current_epoch(filename,epoch):
-    with open('{}.txt'.format(filename),'w') as ofil:
-        ofil.write(f'{epoch}')
-    print('Saved epoch ',epoch)
-    
-def write_current_phase_number(filename,index):
-    with open('{}.txt'.format(filename),'w') as ofil:
-        ofil.write(f'{index}')
-    print('Saved phase number ',index)
-    
-def write_combinations(filename,phase):
-    with open('{}.txt'.format(filename),'w') as f:
-        print(phase, file=f)
-    print('Saved training phase ')
-
-def read_combinations(filename):
-    with open('{}.txt'.format(filename),'r') as f:
-        content = f.read()
-        return eval(content)
-
-def read_phase_number(filename):
-    with open('{}.txt'.format(filename),'r') as f:
-        return int(f.read())
-        
-def prepare_directory(directory = "imgs"):
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-    
 #######################################
 '''         Visualizations          '''
 #######################################
 
-def plot_image(i, predictions_array, images,classes=class_names):
+def plot_image(i, predictions_array, images,classes=[""],directory='abc'):
+    """
+    Store Generated Image and plot it with the correspondent classification associated
+    to it
+    
+    :i: id of image
+    :predictions_array: array with probability for each class
+    :image_size: size of output images
+    :images: images generated
+    :classes: Array with label names of each class
+    :directory: Directory to store images
+    """
     img = prepare_img(images[i])
     plt.grid(False)
     plt.xticks([])
@@ -294,8 +381,10 @@ def plot_image(i, predictions_array, images,classes=class_names):
 
     if(img.shape[-1] != 1):
         plt.imshow(img)
+        plt.imsave('{}/id_{}.png'.format(directory,i),img)
     else:
         plt.imshow(img[:,:,0],cmap="gray")
+        plt.imsave('{}/id_{}.png'.format(directory,i),img[:,:,0],cmap="gray")
 
     predicted_label = np.argmax(predictions_array)
 
@@ -303,7 +392,16 @@ def plot_image(i, predictions_array, images,classes=class_names):
                                 100*np.max(predictions_array)),
                                 color='red')
 
-def produce_generate_figure(directory,gen_images,predictions,classes=class_names):
+def produce_generate_figure(directory,gen_images,predictions,classes=[""]):
+    """
+    Store Generated Images and plot them with the correspondent classifications associated
+    to the images
+    
+    :gen_images: images generated
+    :predictions: array with collection of predictions (one collection for each image)
+    :classes: Array with label names of each class
+    :directory: Directory to store images
+    """
     num_classes = len(classes)
     prepare_directory(directory)
     num_images = gen_images.shape[0]
@@ -318,16 +416,20 @@ def produce_generate_figure(directory,gen_images,predictions,classes=class_names
             w_list = tf.abs(x)
         else:
             w_list = predictions[i]
-        #print('w_list shape: ', w_list.shape)
         w_list = tf.reshape(w_list,(w_list.shape[0],))
-        plot_image(i, w_list, gen_images)
+        plot_image(i, w_list, gen_images,classes,directory)
         plt.subplot(num_rows, 2*num_cols, 2*i+2)
-        plot_value_array(i, w_list)
-        _ = plt.xticks(range(len(classes)),classes,rotation=80)
+        plot_value_array(i, w_list, classes)
     plt.tight_layout()
     plt.savefig('{}/classifications.png'.format(directory))
 
-def plot_value_array(i, predictions_array,classes = class_names):
+def plot_value_array(i, predictions_array,classes = [""]):
+    """
+    Plot the classification prediction of each image
+    :i: id of image
+    :predictions_array: array with probability for each class
+    :classes: Array with label names of each class
+    """
     plt.grid(False)
     plt.xticks(range(len(classes)))
     plt.yticks([])
@@ -336,8 +438,13 @@ def plot_value_array(i, predictions_array,classes = class_names):
     predicted_label = np.argmax(predictions_array)
 
     thisplot[predicted_label].set_color('red')
+    _ = plt.xticks(range(len(classes)),classes,rotation=80)
   
 def create_gif(filename):
+    """
+    Create a gif from a set of images
+    :filename: name of gif file
+    """
     anim_file = '{}.gif'.format(filename)
     with imageio.get_writer(anim_file, mode='I') as writer:
         filenames = glob.glob('image*.png')
@@ -411,7 +518,6 @@ def print_training_output_simple_loss(step,steps,loss):
      print('Step {} of {}'.format(step,steps))
      print('Model loss: {}'.format(loss))
      print('-------------------------------------------------')
-     
      
 def print_training_time(start_time,end_time,params):
     total_minutes = (end_time-start_time) / 60
