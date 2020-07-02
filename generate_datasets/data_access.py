@@ -109,7 +109,7 @@ def prepare_data(generator,data_dir='npz_imgs',labels_dir='npz_labels',size_shap
     
     return train_x, labels, None, None
 
-def prepare_data_KERAS(generator = 'gan', dataset_name='FMNIST'):
+def prepare_data_KERAS(generator = 'gan', dataset_name='FMNIST',limitation=10000):
     """
     Simple abstraction to easily load the standard datasets keras has builtin
     (Fashion MNIST: 'FMNIST' | MNIST: 'MNIST' | Cifar: 'cifar')
@@ -152,7 +152,7 @@ def prepare_data_KERAS(generator = 'gan', dataset_name='FMNIST'):
             test_x[test_x >= .5] = 1.
             test_x[test_x < .5] = 0.
         
-    return train_x,train_y,test_x,test_y
+    return train_x[:limitation],train_y[:limitation],test_x[:limitation],test_y[:limitation]
     
 
 def prepare_dataset(generator, dataset, image_size=(152,152)):
