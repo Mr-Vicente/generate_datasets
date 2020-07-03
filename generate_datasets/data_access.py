@@ -188,7 +188,7 @@ def prepare_img(img,type_de = 'gan'):
     if (type_de == 'gan'):
         img = de_standardize_norm(img)
     else:
-        img = de_standardize_norm(img) 
+        pass
     return img
 
 #######################################
