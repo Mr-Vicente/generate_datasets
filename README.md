@@ -25,13 +25,13 @@ from generate_datasets import data_access
 from generate_datasets.WGAN_GP.wgan_gp_class_generic import WGAN_GP
 
 EPOCHS = 500
+OUTPUT_DIR = "imgs_gen"
 params = {
     'lr': 0.0001,
     'beta1': 0,
     'batch_size': 64,
     'latent_dim': 128,
     'image_size': 152
-
 }
 
 class_names = ['Blond-yellow','Yellow','Orange','Orange-Brown','Blond',
@@ -43,7 +43,7 @@ Number_Dataset_Classes = len(class_names)
 gan = WGAN_GP(params)
 gan.load_dataset(data_access.prepare_data('gan'),Number_Dataset_Classes)
 gan.train_model(EPOCHS)
-gan.generate_images(10,"imgs")
+gan.generate_images(10,OUTPUT_DIR,class_names)
 ```
 
 If no classifier is provided to GANs, the gan model will behave like a normal gan.
@@ -67,7 +67,6 @@ params = {
     'batch_size': 64,
     'latent_dim': 128,
     'image_size': 152
-
 }
 
 class_names = ['Blond-yellow','Yellow','Orange','Orange-Brown','Blond',
